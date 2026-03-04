@@ -11,37 +11,46 @@ app = Flask(__name__)
 
 
 def get_clients():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
 
-    rows = conn.execute("""
-        SELECT id, full_name
-        FROM clients
-        ORDER BY full_name
-    """).fetchall()
+    rows = []
 
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
 
-    groups = {"Open Gym":[], "Challenge":[], "Other":[]}
+        rows = conn.execute("""
+            SELECT id, full_name
+            FROM clients
+            ORDER BY full_name
+        """).fetchall()
 
-    for r in rows:
-        groups["Challenge"].append(r)
+        conn.close()
+
+    except:
+        rows = []
+
+    groups = {"Challenge": rows}
 
     return groups
 
 
 def get_active_challenge():
-    conn = sqlite3.connect(DB_PATH)
 
-    row = conn.execute("""
-        SELECT id
-        FROM challenges
-        WHERE status='active'
-    """).fetchone()
+    try:
+        conn = sqlite3.connect(DB_PATH)
 
-    conn.close()
+        row = conn.execute("""
+            SELECT id
+            FROM challenges
+            WHERE status='active'
+        """).fetchone()
 
-    return row[0] if row else None
+        conn.close()
+
+        return row[0] if row else None
+
+    except:
+        return None
 
 
 def log_attendance(client_id):
@@ -51,16 +60,20 @@ def log_attendance(client_id):
     if not challenge_id:
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn = sqlite3.connect(DB_PATH)
 
-    conn.execute("""
-        INSERT OR IGNORE INTO attendance
-        (client_id, challenge_id, session_date)
-        VALUES (?, ?, ?)
-    """,(client_id, challenge_id, datetime.today().date()))
+        conn.execute("""
+            INSERT OR IGNORE INTO attendance
+            (client_id, challenge_id, session_date)
+            VALUES (?, ?, ?)
+        """,(client_id, challenge_id, datetime.today().date()))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+
+    except:
+        pass
 
 
 @app.route("/checkin", methods=["GET","POST"])
@@ -82,15 +95,18 @@ def checkin():
 
     html = """
     <h1>TSHRT Class Check-In</h1>
+
     <form method="post">
 
     {% for group, clients in groups.items() %}
-    <h3>{{group}}</h3>
-    {% for c in clients %}
-        <button name="client_id" value="{{c['id']}}">
-            {{c['full_name']}}
-        </button><br><br>
-    {% endfor %}
+        <h3>{{group}}</h3>
+
+        {% for c in clients %}
+            <button name="client_id" value="{{c['id']}}">
+                {{c['full_name']}}
+            </button><br><br>
+        {% endfor %}
+
     {% endfor %}
 
     </form>
@@ -102,26 +118,36 @@ def checkin():
 @app.route("/coach")
 def coach():
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    rows = []
 
-    rows = conn.execute("""
-        SELECT clients.full_name, attendance.session_date
-        FROM attendance
-        JOIN clients ON attendance.client_id = clients.id
-        ORDER BY attendance.session_date DESC
-    """).fetchall()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
 
-    conn.close()
+        rows = conn.execute("""
+            SELECT clients.full_name, attendance.session_date
+            FROM attendance
+            JOIN clients ON attendance.client_id = clients.id
+            ORDER BY attendance.session_date DESC
+        """).fetchall()
+
+        conn.close()
+
+    except:
+        rows = []
 
     html = """
     <h1>TSHRT Coach Dashboard</h1>
 
     <h2>Recent Check-ins</h2>
 
-    {% for r in rows %}
-        <p>{{r['full_name']}} - {{r['session_date']}}</p>
-    {% endfor %}
+    {% if rows %}
+        {% for r in rows %}
+            <p>{{r['full_name']}} - {{r['session_date']}}</p>
+        {% endfor %}
+    {% else %}
+        <p>No attendance recorded yet.</p>
+    {% endif %}
     """
 
     return render_template_string(html, rows=rows)

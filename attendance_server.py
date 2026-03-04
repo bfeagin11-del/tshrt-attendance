@@ -99,8 +99,6 @@ def checkin():
     return render_template_string(html, groups=groups)
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
 @app.route("/coach")
 def coach():
 
@@ -127,3 +125,7 @@ def coach():
     """
 
     return render_template_string(html, rows=rows)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

@@ -9,25 +9,7 @@ CHECKIN_END = time(19,30)
 
 app = Flask(__name__)
 
-app = Flask(__name__)
 
-def init_db():
-
-    conn = sqlite3.connect(DB_PATH)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        client_id INTEGER,
-        challenge_id INTEGER,
-        session_date DATE
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-init_db()
 def get_clients():
 
     rows = []
@@ -78,14 +60,26 @@ def log_attendance(client_id):
     if not challenge_id:
         return
 
+    today = datetime.today().date()
+
     try:
         conn = sqlite3.connect(DB_PATH)
 
+        # Prevent duplicate check-ins
+        existing = conn.execute("""
+        SELECT id FROM attendance
+        WHERE client_id=? AND session_date=?
+        """,(client_id, today)).fetchone()
+
+        if existing:
+            conn.close()
+            return
+
         conn.execute("""
-            INSERT OR IGNORE INTO attendance
+            INSERT INTO attendance
             (client_id, challenge_id, session_date)
             VALUES (?, ?, ?)
-        """,(client_id, challenge_id, datetime.today().date()))
+        """,(client_id, challenge_id, today))
 
         conn.commit()
         conn.close()
@@ -143,10 +137,11 @@ def coach():
         conn.row_factory = sqlite3.Row
 
         rows = conn.execute("""
-            SELECT clients.full_name, attendance.session_date
+            SELECT clients.full_name
             FROM attendance
             JOIN clients ON attendance.client_id = clients.id
-            ORDER BY attendance.session_date DESC
+            WHERE attendance.session_date = DATE('now')
+            ORDER BY clients.full_name
         """).fetchall()
 
         conn.close()
@@ -157,14 +152,18 @@ def coach():
     html = """
     <h1>TSHRT Coach Dashboard</h1>
 
-    <h2>Recent Check-ins</h2>
+    <h2>Attendance Today</h2>
 
     {% if rows %}
+
+        <p><b>{{rows|length}} Checked In</b></p>
+
         {% for r in rows %}
-            <p>{{r['full_name']}} - {{r['session_date']}}</p>
+            <p>✔ {{r['full_name']}}</p>
         {% endfor %}
+
     {% else %}
-        <p>No attendance recorded yet.</p>
+        <p>No one has checked in yet.</p>
     {% endif %}
     """
 
@@ -173,4 +172,3 @@ def coach():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-

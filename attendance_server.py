@@ -101,3 +101,29 @@ def checkin():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+@app.route("/coach")
+def coach():
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    rows = conn.execute("""
+        SELECT clients.full_name, attendance.session_date
+        FROM attendance
+        JOIN clients ON attendance.client_id = clients.id
+        ORDER BY attendance.session_date DESC
+    """).fetchall()
+
+    conn.close()
+
+    html = """
+    <h1>TSHRT Coach Dashboard</h1>
+
+    <h2>Recent Check-ins</h2>
+
+    {% for r in rows %}
+        <p>{{r['full_name']}} - {{r['session_date']}}</p>
+    {% endfor %}
+    """
+
+    return render_template_string(html, rows=rows)

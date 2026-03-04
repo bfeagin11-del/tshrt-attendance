@@ -9,7 +9,25 @@ CHECKIN_END = time(19,30)
 
 app = Flask(__name__)
 
+app = Flask(__name__)
 
+def init_db():
+
+    conn = sqlite3.connect(DB_PATH)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id INTEGER,
+        challenge_id INTEGER,
+        session_date DATE
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+init_db()
 def get_clients():
 
     rows = []
@@ -155,3 +173,4 @@ def coach():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+

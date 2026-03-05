@@ -276,8 +276,61 @@ def batch():
     """
 
     return render_template_string(html)
+@app.route("/coach_checkin", methods=["GET","POST"])
+def coach_checkin():
+
+    if request.method == "POST":
+
+        ids = request.form.getlist("client")
+
+        conn = sqlite3.connect(DB_PATH)
+
+        for cid in ids:
+
+            conn.execute("""
+            INSERT INTO attendance (client_id,session_date)
+            VALUES (?,?)
+            """,(cid, datetime.today().date()))
+
+        conn.commit()
+        conn.close()
+
+        return "Attendance recorded for class."
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    rows = conn.execute("""
+    SELECT id,full_name
+    FROM clients
+    ORDER BY full_name
+    """).fetchall()
+
+    conn.close()
+
+    html = """
+    <h1>Coach Attendance</h1>
+
+    <form method="post">
+
+    {% for r in rows %}
+
+        <input type="checkbox" name="client" value="{{r['id']}}">
+        {{r['full_name']}}<br>
+
+    {% endfor %}
+
+    <br>
+
+    <button>Submit Attendance</button>
+
+    </form>
+    """
+
+    return render_template_string(html, rows=rows)
 init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0",port=5000)
+
 

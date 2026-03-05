@@ -1,39 +1,59 @@
 import sqlite3
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, redirect
 from datetime import datetime
-import csv
-import io
-
-DB_PATH = "attendance.db"
 
 app = Flask(__name__)
 
-CLASS_OPEN = False
+DB_PATH = "tshrt.db"
 
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
 
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS clients(
+    CREATE TABLE IF NOT EXISTS clients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        full_name TEXT
+        full_name TEXT,
+        group_name TEXT
     )
     """)
 
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS attendance(
+    CREATE TABLE IF NOT EXISTS attendance (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id INTEGER,
         session_date TEXT
     )
     """)
 
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS class_state (
+        id INTEGER PRIMARY KEY,
+        open INTEGER
+    )
+    """)
+
+    row = conn.execute("SELECT * FROM class_state").fetchone()
+
+    if not row:
+        conn.execute("INSERT INTO class_state (id,open) VALUES (1,0)")
+
     conn.commit()
     conn.close()
 
 
-init_db()
+def class_open():
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT open FROM class_state WHERE id=1").fetchone()
+    conn.close()
+    return row[0] == 1
+
+
+def set_class_state(val):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE class_state SET open=?", (val,))
+    conn.commit()
+    conn.close()
 
 
 def get_clients():
@@ -41,72 +61,152 @@ def get_clients():
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute("""
-        SELECT id, full_name
-        FROM clients
-        ORDER BY full_name
+    SELECT id,full_name,group_name
+    FROM clients
+    ORDER BY full_name
     """).fetchall()
 
     conn.close()
 
-    return rows
+    groups = {}
 
+    for r in rows:
+        g = r["group_name"]
 
-def log_attendance(client_id):
+        if g not in groups:
+            groups[g] = []
 
-    today = datetime.today().date()
+        groups[g].append(r)
 
-    conn = sqlite3.connect(DB_PATH)
-
-    existing = conn.execute("""
-        SELECT id FROM attendance
-        WHERE client_id=? AND session_date=?
-    """,(client_id, today)).fetchone()
-
-    if existing:
-        conn.close()
-        return
-
-    conn.execute("""
-        INSERT INTO attendance(client_id, session_date)
-        VALUES (?,?)
-    """,(client_id, today))
-
-    conn.commit()
-    conn.close()
+    return groups
 
 
 @app.route("/checkin", methods=["GET","POST"])
 def checkin():
 
-    global CLASS_OPEN
-
-    if not CLASS_OPEN:
-        return "Check-in is currently closed."
+    if not class_open():
+        return "Check-in closed"
 
     if request.method == "POST":
 
-        client_id = request.form["client_id"]
-        log_attendance(client_id)
+        cid = request.form["client_id"]
 
-        return "✅ Check-in recorded"
+        conn = sqlite3.connect(DB_PATH)
 
-    clients = get_clients()
+        conn.execute("""
+        INSERT INTO attendance (client_id,session_date)
+        VALUES (?,?)
+        """,(cid, datetime.today().date()))
+
+        conn.commit()
+        conn.close()
+
+        return "Check-in recorded"
+
+    groups = get_clients()
 
     html = """
     <h1>TSHRT Class Check-In</h1>
 
     <form method="post">
 
-    {% for c in clients %}
-        <button name="client_id" value="{{c['id']}}">
+    {% for g,clients in groups.items() %}
+
+        <h2>{{g}}</h2>
+
+        {% for c in clients %}
+
+            <button name="client_id" value="{{c['id']}}">
             {{c['full_name']}}
-        </button><br><br>
+            </button><br><br>
+
+        {% endfor %}
+
     {% endfor %}
 
     </form>
     """
 
-    return render_template_string(html, clients=clients)
+    return render_template_string(html, groups=groups)
+
+
+@app.route("/coach_control")
+def coach_control():
+
+    status = "OPEN" if class_open() else "CLOSED"
+
+    html = """
+    <h1>TSHRT Coach Control</h1>
+
+    <p>Status: {{status}}</p>
+
+    <form method="post" action="/open">
+        <button type="submit">OPEN CLASS</button>
+    </form>
+
+    <br>
+
+    <form method="post" action="/close">
+        <button type="submit">CLOSE CLASS</button>
+    </form>
+
+    <br><br>
+
+    <a href="/add">Add Client</a>
+    """
+
+    return render_template_string(html, status=status)
+
+
+@app.route("/open", methods=["POST"])
+def open_class():
+    set_class_state(1)
+    return redirect("/coach_control")
+
+
+@app.route("/close", methods=["POST"])
+def close_class():
+    set_class_state(0)
+    return redirect("/coach_control")
+
+
+@app.route("/add", methods=["GET","POST"])
+def add():
+
+    if request.method == "POST":
+
+        name = request.form["name"]
+        group = request.form["group"]
+
+        conn = sqlite3.connect(DB_PATH)
+
+        conn.execute("""
+        INSERT INTO clients (full_name,group_name)
+        VALUES (?,?)
+        """,(name,group))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/coach_control")
+
+    html = """
+    <h1>Add Client</h1>
+
+    <form method="post">
+
+    Name:<br>
+    <input name="name"><br><br>
+
+    Group:<br>
+    <input name="group" value="ABC"><br><br>
+
+    <button>Add</button>
+
+    </form>
+    """
+
+    return render_template_string(html)
 
 
 @app.route("/coach")
@@ -116,11 +216,10 @@ def coach():
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute("""
-        SELECT clients.full_name
-        FROM attendance
-        JOIN clients ON attendance.client_id = clients.id
-        WHERE attendance.session_date = DATE('now')
-        ORDER BY clients.full_name
+    SELECT clients.full_name,attendance.session_date
+    FROM attendance
+    JOIN clients ON attendance.client_id=clients.id
+    ORDER BY attendance.session_date DESC
     """).fetchall()
 
     conn.close()
@@ -128,93 +227,17 @@ def coach():
     html = """
     <h1>TSHRT Coach Dashboard</h1>
 
-    <h2>Attendance Today</h2>
+    {% for r in rows %}
 
-    {% if rows %}
+    <p>{{r['full_name']}} - {{r['session_date']}}</p>
 
-        <p><b>{{rows|length}} Checked In</b></p>
-
-        {% for r in rows %}
-            <p>✔ {{r['full_name']}}</p>
-        {% endfor %}
-
-    {% else %}
-        <p>No one has checked in yet.</p>
-    {% endif %}
+    {% endfor %}
     """
 
     return render_template_string(html, rows=rows)
 
 
-@app.route("/coach_control")
-def coach_control():
-
-    global CLASS_OPEN
-
-    html = """
-    <h1>TSHRT Coach Control</h1>
-
-    <p>Class Status: <b>{{status}}</b></p>
-
-    <form method="post" action="/open_class">
-        <button type="submit">OPEN CLASS</button>
-    </form>
-
-    <br>
-
-    <form method="post" action="/close_class">
-        <button type="submit">CLOSE CLASS</button>
-    </form>
-    """
-
-    status = "OPEN" if CLASS_OPEN else "CLOSED"
-
-    return render_template_string(html, status=status)
-
-
-@app.route("/open_class", methods=["POST"])
-def open_class():
-
-    global CLASS_OPEN
-    CLASS_OPEN = True
-
-    return "Class opened. Clients may check in."
-
-
-@app.route("/close_class", methods=["POST"])
-def close_class():
-
-    global CLASS_OPEN
-    CLASS_OPEN = False
-
-    return "Class closed."
-
-
-@app.route("/export")
-def export():
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    rows = conn.execute("""
-        SELECT clients.full_name, attendance.session_date
-        FROM attendance
-        JOIN clients ON attendance.client_id = clients.id
-        ORDER BY attendance.session_date DESC
-    """).fetchall()
-
-    conn.close()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    writer.writerow(["Client Name","Date"])
-
-    for r in rows:
-        writer.writerow([r["full_name"], r["session_date"]])
-
-    return output.getvalue()
-
+init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0",port=5000)

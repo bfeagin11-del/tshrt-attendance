@@ -236,8 +236,48 @@ def coach():
 
     return render_template_string(html, rows=rows)
 
+@app.route("/batch", methods=["GET","POST"])
+def batch():
 
+    if request.method == "POST":
+
+        names = request.form["names"].splitlines()
+        group = request.form["group"]
+
+        conn = sqlite3.connect(DB_PATH)
+
+        for n in names:
+            n = n.strip()
+            if n:
+                conn.execute(
+                    "INSERT INTO clients (full_name,group_name) VALUES (?,?)",
+                    (n, group)
+                )
+
+        conn.commit()
+        conn.close()
+
+        return "Roster imported."
+
+    html = """
+    <h1>Batch Import Clients</h1>
+
+    <form method="post">
+
+    Group:<br>
+    <input name="group" value="ABC"><br><br>
+
+    Paste Names (one per line):<br>
+    <textarea name="names" rows="20" cols="40"></textarea><br><br>
+
+    <button>Import</button>
+
+    </form>
+    """
+
+    return render_template_string(html)
 init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0",port=5000)
+

@@ -65,7 +65,6 @@ def log_attendance(client_id):
     try:
         conn = sqlite3.connect(DB_PATH)
 
-        # Prevent duplicate check-ins
         existing = conn.execute("""
         SELECT id FROM attendance
         WHERE client_id=? AND session_date=?
@@ -94,7 +93,7 @@ def checkin():
     now = datetime.now().time()
 
     if not (CHECKIN_START <= now <= CHECKIN_END):
-        return "Check-in closed. Window is 18:00-19:45."
+        return "Check-in closed. Window is 18:00–19:45."
 
     if request.method == "POST":
 
@@ -107,6 +106,8 @@ def checkin():
 
     html = """
     <h1>TSHRT Class Check-In</h1>
+
+    <p>Check-in Window: 18:00 – 19:45</p>
 
     <form method="post">
 
@@ -149,31 +150,26 @@ def coach():
     except:
         rows = []
 
-   html = """
-<h1>TSHRT Class Check-In</h1>
+    html = """
+    <h1>TSHRT Coach Dashboard</h1>
 
-<p>Check-in Window: 18:00 – 19:45</p>
+    <h2>Attendance Today</h2>
 
-<form method="post">
+    {% if rows %}
 
-{% for group, clients in groups.items() %}
-    <h3>{{group}}</h3>
+        <p><b>{{rows|length}} Checked In</b></p>
 
-    {% for c in clients %}
-        <button name="client_id" value="{{c['id']}}">
-            {{c['full_name']}}
-        </button><br><br>
-    {% endfor %}
+        {% for r in rows %}
+            <p>✔ {{r['full_name']}}</p>
+        {% endfor %}
 
-{% endfor %}
-
-</form>
-"""
+    {% else %}
+        <p>No one has checked in yet.</p>
+    {% endif %}
+    """
 
     return render_template_string(html, rows=rows)
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
-

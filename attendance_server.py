@@ -115,9 +115,7 @@ def checkin():
         <h3>{{group}}</h3>
 
         {% for c in clients %}
-            <button name="client_id" value="{{c['id']}}">
-                {{c['full_name']}}
-            </button><br><br>
+            <button name="client_id" value="{{c['id']}}">{{c['full_name']}}</button><br><br>
         {% endfor %}
 
     {% endfor %}
@@ -156,7 +154,6 @@ def coach():
     <h2>Attendance Today</h2>
 
     {% if rows %}
-
         <p><b>{{rows|length}} Checked In</b></p>
 
         {% for r in rows %}
@@ -169,6 +166,79 @@ def coach():
     """
 
     return render_template_string(html, rows=rows)
+
+
+@app.route("/coach_checkin", methods=["GET","POST"])
+def coach_checkin():
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+
+        clients = conn.execute("""
+            SELECT id, full_name
+            FROM clients
+            ORDER BY full_name
+        """).fetchall()
+
+        conn.close()
+
+    except:
+        clients = []
+
+    if request.method == "POST":
+
+        today = datetime.today().date()
+        challenge_id = get_active_challenge()
+
+        selected = request.form.getlist("client")
+
+        conn = sqlite3.connect(DB_PATH)
+
+        for cid in selected:
+
+            existing = conn.execute("""
+                SELECT id FROM attendance
+                WHERE client_id=? AND session_date=?
+            """,(cid, today)).fetchone()
+
+            if not existing:
+
+                conn.execute("""
+                    INSERT INTO attendance
+                    (client_id, challenge_id, session_date)
+                    VALUES (?, ?, ?)
+                """,(cid, challenge_id, today))
+
+        conn.commit()
+        conn.close()
+
+        return "✅ Class attendance recorded"
+
+    html = """
+
+    <h1>Coach Attendance</h1>
+
+    <p>Everyone is checked by default. Uncheck absences.</p>
+
+    <form method="post">
+
+    {% for c in clients %}
+
+        <input type="checkbox" name="client" value="{{c['id']}}" checked>
+        {{c['full_name']}}<br>
+
+    {% endfor %}
+
+    <br>
+
+    <button>Submit Attendance</button>
+
+    </form>
+
+    """
+
+    return render_template_string(html, clients=clients)
 
 
 if __name__ == "__main__":

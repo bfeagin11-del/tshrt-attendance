@@ -94,7 +94,7 @@ def checkin():
     now = datetime.now().time()
 
     if not (CHECKIN_START <= now <= CHECKIN_END):
-        return "Check-in closed. Window is 19:10–19:30."
+        return "Check-in closed. Window is 18:00-19:45."
 
     if request.method == "POST":
 
@@ -172,3 +172,4 @@ def coach():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+

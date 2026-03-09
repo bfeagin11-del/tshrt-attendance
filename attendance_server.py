@@ -149,27 +149,31 @@ def coach():
     except:
         rows = []
 
-    html = """
-    <h1>TSHRT Coach Dashboard</h1>
+   html = """
+<h1>TSHRT Class Check-In</h1>
 
-    <h2>Attendance Today</h2>
+<p>Check-in Window: 18:00 – 19:45</p>
 
-    {% if rows %}
+<form method="post">
 
-        <p><b>{{rows|length}} Checked In</b></p>
+{% for group, clients in groups.items() %}
+    <h3>{{group}}</h3>
 
-        {% for r in rows %}
-            <p>✔ {{r['full_name']}}</p>
-        {% endfor %}
+    {% for c in clients %}
+        <button name="client_id" value="{{c['id']}}">
+            {{c['full_name']}}
+        </button><br><br>
+    {% endfor %}
 
-    {% else %}
-        <p>No one has checked in yet.</p>
-    {% endif %}
-    """
+{% endfor %}
+
+</form>
+"""
 
     return render_template_string(html, rows=rows)
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 

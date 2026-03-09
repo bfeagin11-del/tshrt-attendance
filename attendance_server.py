@@ -1,107 +1,107 @@
 import sqlite3
-from flask import Flask, render_template_string, request, redirect
-from datetime import datetime
-
-app = Flask(__name__)
+from flask import Flask, render_template_string, request
+from datetime import datetime, time
 
 DB_PATH = "tshrt.db"
 
+CHECKIN_START = time(18,0)
+CHECKIN_END = time(19,45)
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        full_name TEXT,
-        group_name TEXT
-    )
-    """)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        client_id INTEGER,
-        session_date TEXT
-    )
-    """)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS class_state (
-        id INTEGER PRIMARY KEY,
-        open INTEGER
-    )
-    """)
-
-    row = conn.execute("SELECT * FROM class_state").fetchone()
-
-    if not row:
-        conn.execute("INSERT INTO class_state (id,open) VALUES (1,0)")
-
-    conn.commit()
-    conn.close()
-
-
-def class_open():
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute("SELECT open FROM class_state WHERE id=1").fetchone()
-    conn.close()
-    return row[0] == 1
-
-
-def set_class_state(val):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE class_state SET open=?", (val,))
-    conn.commit()
-    conn.close()
+app = Flask(__name__)
 
 
 def get_clients():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
 
-    rows = conn.execute("""
-    SELECT id,full_name,group_name
-    FROM clients
-    ORDER BY full_name
-    """).fetchall()
+    rows = []
 
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
 
-    groups = {}
+        rows = conn.execute("""
+            SELECT id, full_name
+            FROM clients
+            ORDER BY full_name
+        """).fetchall()
 
-    for r in rows:
-        g = r["group_name"]
+        conn.close()
 
-        if g not in groups:
-            groups[g] = []
+    except:
+        rows = []
 
-        groups[g].append(r)
+    groups = {"Challenge": rows}
 
     return groups
+
+
+def get_active_challenge():
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+
+        row = conn.execute("""
+            SELECT id
+            FROM challenges
+            WHERE status='active'
+        """).fetchone()
+
+        conn.close()
+
+        return row[0] if row else None
+
+    except:
+        return None
+
+
+def log_attendance(client_id):
+
+    challenge_id = get_active_challenge()
+
+    if not challenge_id:
+        return
+
+    today = datetime.today().date()
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+
+        # Prevent duplicate check-ins
+        existing = conn.execute("""
+        SELECT id FROM attendance
+        WHERE client_id=? AND session_date=?
+        """,(client_id, today)).fetchone()
+
+        if existing:
+            conn.close()
+            return
+
+        conn.execute("""
+            INSERT INTO attendance
+            (client_id, challenge_id, session_date)
+            VALUES (?, ?, ?)
+        """,(client_id, challenge_id, today))
+
+        conn.commit()
+        conn.close()
+
+    except:
+        pass
 
 
 @app.route("/checkin", methods=["GET","POST"])
 def checkin():
 
-    if not class_open():
-        return "Check-in closed"
+    now = datetime.now().time()
+
+    if not (CHECKIN_START <= now <= CHECKIN_END):
+        return "Check-in closed. Window is 19:10–19:30."
 
     if request.method == "POST":
 
-        cid = request.form["client_id"]
+        client_id = request.form["client_id"]
+        log_attendance(client_id)
 
-        conn = sqlite3.connect(DB_PATH)
-
-        conn.execute("""
-        INSERT INTO attendance (client_id,session_date)
-        VALUES (?,?)
-        """,(cid, datetime.today().date()))
-
-        conn.commit()
-        conn.close()
-
-        return "Check-in recorded"
+        return "✅ Check-in recorded"
 
     groups = get_clients()
 
@@ -110,16 +110,13 @@ def checkin():
 
     <form method="post">
 
-    {% for g,clients in groups.items() %}
-
-        <h2>{{g}}</h2>
+    {% for group, clients in groups.items() %}
+        <h3>{{group}}</h3>
 
         {% for c in clients %}
-
             <button name="client_id" value="{{c['id']}}">
-            {{c['full_name']}}
+                {{c['full_name']}}
             </button><br><br>
-
         {% endfor %}
 
     {% endfor %}
@@ -130,207 +127,48 @@ def checkin():
     return render_template_string(html, groups=groups)
 
 
-@app.route("/coach_control")
-def coach_control():
-
-    status = "OPEN" if class_open() else "CLOSED"
-
-    html = """
-    <h1>TSHRT Coach Control</h1>
-
-    <p>Status: {{status}}</p>
-
-    <form method="post" action="/open">
-        <button type="submit">OPEN CLASS</button>
-    </form>
-
-    <br>
-
-    <form method="post" action="/close">
-        <button type="submit">CLOSE CLASS</button>
-    </form>
-
-    <br><br>
-
-    <a href="/add">Add Client</a>
-    """
-
-    return render_template_string(html, status=status)
-
-
-@app.route("/open", methods=["POST"])
-def open_class():
-    set_class_state(1)
-    return redirect("/coach_control")
-
-
-@app.route("/close", methods=["POST"])
-def close_class():
-    set_class_state(0)
-    return redirect("/coach_control")
-
-
-@app.route("/add", methods=["GET","POST"])
-def add():
-
-    if request.method == "POST":
-
-        name = request.form["name"]
-        group = request.form["group"]
-
-        conn = sqlite3.connect(DB_PATH)
-
-        conn.execute("""
-        INSERT INTO clients (full_name,group_name)
-        VALUES (?,?)
-        """,(name,group))
-
-        conn.commit()
-        conn.close()
-
-        return redirect("/coach_control")
-
-    html = """
-    <h1>Add Client</h1>
-
-    <form method="post">
-
-    Name:<br>
-    <input name="name"><br><br>
-
-    Group:<br>
-    <input name="group" value="ABC"><br><br>
-
-    <button>Add</button>
-
-    </form>
-    """
-
-    return render_template_string(html)
-
-
 @app.route("/coach")
 def coach():
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    rows = []
 
-    rows = conn.execute("""
-    SELECT clients.full_name,attendance.session_date
-    FROM attendance
-    JOIN clients ON attendance.client_id=clients.id
-    ORDER BY attendance.session_date DESC
-    """).fetchall()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
 
-    conn.close()
+        rows = conn.execute("""
+            SELECT clients.full_name
+            FROM attendance
+            JOIN clients ON attendance.client_id = clients.id
+            WHERE attendance.session_date = DATE('now')
+            ORDER BY clients.full_name
+        """).fetchall()
+
+        conn.close()
+
+    except:
+        rows = []
 
     html = """
     <h1>TSHRT Coach Dashboard</h1>
 
-    {% for r in rows %}
+    <h2>Attendance Today</h2>
 
-    <p>{{r['full_name']}} - {{r['session_date']}}</p>
+    {% if rows %}
 
-    {% endfor %}
+        <p><b>{{rows|length}} Checked In</b></p>
+
+        {% for r in rows %}
+            <p>✔ {{r['full_name']}}</p>
+        {% endfor %}
+
+    {% else %}
+        <p>No one has checked in yet.</p>
+    {% endif %}
     """
 
     return render_template_string(html, rows=rows)
 
-@app.route("/batch", methods=["GET","POST"])
-def batch():
-
-    if request.method == "POST":
-
-        names = request.form["names"].splitlines()
-        group = request.form["group"]
-
-        conn = sqlite3.connect(DB_PATH)
-
-        for n in names:
-            n = n.strip()
-            if n:
-                conn.execute(
-                    "INSERT INTO clients (full_name,group_name) VALUES (?,?)",
-                    (n, group)
-                )
-
-        conn.commit()
-        conn.close()
-
-        return "Roster imported."
-
-    html = """
-    <h1>Batch Import Clients</h1>
-
-    <form method="post">
-
-    Group:<br>
-    <input name="group" value="ABC"><br><br>
-
-    Paste Names (one per line):<br>
-    <textarea name="names" rows="20" cols="40"></textarea><br><br>
-
-    <button>Import</button>
-
-    </form>
-    """
-
-    return render_template_string(html)
-@app.route("/coach_checkin", methods=["GET","POST"])
-def coach_checkin():
-
-    if request.method == "POST":
-
-        ids = request.form.getlist("client")
-
-        conn = sqlite3.connect(DB_PATH)
-
-        for cid in ids:
-
-            conn.execute("""
-            INSERT INTO attendance (client_id,session_date)
-            VALUES (?,?)
-            """,(cid, datetime.today().date()))
-
-        conn.commit()
-        conn.close()
-
-        return "Attendance recorded for class."
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    rows = conn.execute("""
-    SELECT id,full_name
-    FROM clients
-    ORDER BY full_name
-    """).fetchall()
-
-    conn.close()
-
-    html = """
-    <h1>Coach Attendance</h1>
-
-    <form method="post">
-
-    {% for r in rows %}
-
-        <input type="checkbox" name="client" value="{{r['id']}}">
-        {{r['full_name']}}<br>
-
-    {% endfor %}
-
-    <br>
-
-    <button>Submit Attendance</button>
-
-    </form>
-    """
-
-    return render_template_string(html, rows=rows)
-init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0",port=5000)
-
-
+    app.run(host="0.0.0.0", port=5000)

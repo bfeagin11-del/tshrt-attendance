@@ -8,9 +8,6 @@ app = Flask(__name__)
 
 
 def get_clients():
-
-    rows = []
-
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -22,17 +19,14 @@ def get_clients():
         """).fetchall()
 
         conn.close()
-
     except:
         rows = []
 
     groups = {"Challenge": rows}
-
     return groups
 
 
 def get_active_challenge():
-
     try:
         conn = sqlite3.connect(DB_PATH)
 
@@ -45,7 +39,6 @@ def get_active_challenge():
         conn.close()
 
         return row[0] if row else None
-
     except:
         return None
 
@@ -65,7 +58,7 @@ def log_attendance(client_id):
         existing = conn.execute("""
         SELECT id FROM attendance
         WHERE client_id=? AND session_date=?
-        """,(client_id, today)).fetchone()
+        """, (client_id, today)).fetchone()
 
         if existing:
             conn.close()
@@ -75,7 +68,7 @@ def log_attendance(client_id):
             INSERT INTO attendance
             (client_id, challenge_id, session_date)
             VALUES (?, ?, ?)
-        """,(client_id, challenge_id, today))
+        """, (client_id, challenge_id, today))
 
         conn.commit()
         conn.close()
@@ -84,14 +77,12 @@ def log_attendance(client_id):
         pass
 
 
-@app.route("/checkin", methods=["GET","POST"])
+@app.route("/checkin", methods=["GET", "POST"])
 def checkin():
 
     if request.method == "POST":
-
         client_id = request.form["client_id"]
         log_attendance(client_id)
-
         return "✅ Check-in recorded"
 
     groups = get_clients()
@@ -107,7 +98,9 @@ def checkin():
         <h3>{{group}}</h3>
 
         {% for c in clients %}
-            <button name="client_id" value="{{c['id']}}">{{c['full_name']}}</button><br><br>
+            <button name="client_id" value="{{c['id']}}">
+                {{c['full_name']}}
+            </button><br><br>
         {% endfor %}
 
     {% endfor %}
@@ -120,8 +113,6 @@ def checkin():
 
 @app.route("/coach")
 def coach():
-
-    rows = []
 
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -136,7 +127,6 @@ def coach():
         """).fetchall()
 
         conn.close()
-
     except:
         rows = []
 
@@ -151,7 +141,6 @@ def coach():
         {% for r in rows %}
             <p>✔ {{r['full_name']}}</p>
         {% endfor %}
-
     {% else %}
         <p>No one has checked in yet.</p>
     {% endif %}
@@ -160,74 +149,5 @@ def coach():
     return render_template_string(html, rows=rows)
 
 
-@app.route("/coach_checkin", methods=["GET","POST"])
-def coach_checkin():
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-
-        clients = conn.execute("""
-            SELECT id, full_name
-            FROM clients
-            ORDER BY full_name
-        """).fetchall()
-
-        conn.close()
-
-    except:
-        clients = []
-
-    if request.method == "POST":
-
-        today = datetime.today().date()
-        challenge_id = get_active_challenge()
-
-        selected = request.form.getlist("client")
-
-        conn = sqlite3.connect(DB_PATH)
-
-        for cid in selected:
-
-            existing = conn.execute("""
-                SELECT id FROM attendance
-                WHERE client_id=? AND session_date=?
-            """,(cid, today)).fetchone()
-
-            if not existing:
-
-                conn.execute("""
-                    INSERT INTO attendance
-                    (client_id, challenge_id, session_date)
-                    VALUES (?, ?, ?)
-                """,(cid, challenge_id, today))
-
-        conn.commit()
-        conn.close()
-
-        return "✅ Class attendance recorded"
-
-    html = """
-
-    <h1>Coach Attendance</h1>
-
-    <p>Everyone is checked by default. Uncheck absences.</p>
-
-    <form method="post">
-
-    {% for c in clients %}
-
-        <input type="checkbox" name="client" value="{{c['id']}}" checked>
-        {{c['full_name']}}<br>
-
-    {% endfor %}
-
-    <br>
-
-    <button>Submit Attendance</button>
-
-    </form>
-
-    """
-
-    return render_template_string(html, clients=clients)
+if __name__ == "__main__":
+    app.run()

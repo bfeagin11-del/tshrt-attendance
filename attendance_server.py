@@ -1,6 +1,5 @@
 import sqlite3
 from flask import Flask, render_template_string, request
-from datetime import datetime
 import os
 
 DB_PATH = "tshrt.db"
@@ -103,13 +102,34 @@ def challenge_board():
 
     <style>
 
-    table {border-collapse:collapse}
+    table {
+        border-collapse: collapse;
+        margin-top:20px;
+    }
 
-    td,th {
+    th, td {
         border:1px solid #ccc;
         padding:10px;
         text-align:center;
     }
+
+    th {
+        background:#f4f4f4;
+    }
+
+    /* keep client column visible */
+
+    th:first-child,
+    td:first-child {
+        position: sticky;
+        left: 0;
+        background: white;
+        font-weight: bold;
+        text-align:left;
+        padding-left:12px;
+    }
+
+    /* bigger clickable checkboxes */
 
     input[type=checkbox] {
         width:22px;
@@ -127,7 +147,6 @@ def challenge_board():
         {% for d in dates %}
         <th>{{d}}</th>
         {% endfor %}
-
     </tr>
 
     {% for c in clients %}

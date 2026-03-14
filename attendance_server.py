@@ -96,98 +96,126 @@ def challenge_board():
 
     html = """
 
-    <h1>TSHRT Challenge Attendance</h1>
+<h1>TSHRT Challenge Attendance</h1>
 
-    <form method="post">
+<form method="post">
 
-    <style>
+<style>
 
-    table {
-        border-collapse: collapse;
-        margin-top:20px;
-    }
+.board-container{
+    overflow:auto;
+    max-height:75vh;
+    border:1px solid #ccc;
+}
 
-    th, td {
-        border:1px solid #ccc;
-        padding:10px;
-        text-align:center;
-    }
+/* table layout */
 
-    th {
-        background:#f4f4f4;
-    }
+table{
+    border-collapse:collapse;
+    min-width:900px;
+}
 
-    /* keep client column visible */
+th,td{
+    border:1px solid #ccc;
+    padding:8px;
+    text-align:center;
+    background:white;
+}
 
-    th:first-child,
-    td:first-child {
-        position: sticky;
-        left: 0;
-        background: white;
-        font-weight: bold;
-        text-align:left;
-        padding-left:12px;
-    }
+/* freeze header row */
 
-    /* bigger clickable checkboxes */
+thead th{
+    position:sticky;
+    top:0;
+    background:#f4f4f4;
+    z-index:3;
+}
 
-    input[type=checkbox] {
-        width:22px;
-        height:22px;
-        cursor:pointer;
-    }
+/* freeze client column */
 
-    </style>
+tbody td:first-child,
+thead th:first-child{
+    position:sticky;
+    left:0;
+    background:white;
+    font-weight:bold;
+    text-align:left;
+    padding-left:12px;
+    z-index:4;
+}
 
-    <table>
+/* bigger clickable checkboxes */
 
-    <tr>
-        <th>Client</th>
+input[type=checkbox]{
+    width:22px;
+    height:22px;
+    cursor:pointer;
+}
 
-        {% for d in dates %}
-        <th>{{d}}</th>
-        {% endfor %}
-    </tr>
+</style>
 
-    {% for c in clients %}
+<div class="board-container">
 
-    <tr>
+<table>
 
-        <td>{{c['full_name']}}</td>
+<thead>
 
-        {% for d in dates %}
+<tr>
+<th>Client</th>
 
-        {% set key = c['id'] ~ "|" ~ d %}
+{% for d in dates %}
+<th>{{d}}</th>
+{% endfor %}
 
-        <td>
+</tr>
 
-        <input type="checkbox"
-        name="{{key}}"
-        value="1"
+</thead>
 
-        {% if (c['id'],d) in lookup %}
-        checked
-        {% endif %}
+<tbody>
 
-        >
+{% for c in clients %}
 
-        </td>
+<tr>
 
-        {% endfor %}
+<td>{{c['full_name']}}</td>
 
-    </tr>
+{% for d in dates %}
 
-    {% endfor %}
+{% set key = c['id'] ~ "|" ~ d %}
 
-    </table>
+<td>
 
-    <br>
+<input type="checkbox"
+name="{{key}}"
+value="1"
 
-    <button type="submit">Save Attendance</button>
+{% if (c['id'],d) in lookup %}
+checked
+{% endif %}
 
-    </form>
+>
 
-    """
+</td>
+
+{% endfor %}
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+</div>
+
+<br>
+
+<button type="submit">Save Attendance</button>
+
+</form>
+
+"""
 
     return render_template_string(
         html,

@@ -154,3 +154,27 @@ import os
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+    @app.route("/upload_roster", methods=["POST"])
+def upload_roster():
+
+    data = request.get_json()
+
+    if not data:
+        return "No data received", 400
+
+    clients = data.get("clients", [])
+
+    conn = sqlite3.connect(DB_PATH)
+
+    conn.execute("DELETE FROM clients")
+
+    for c in clients:
+        conn.execute(
+            "INSERT INTO clients (id, full_name) VALUES (?, ?)",
+            (c["id"], c["full_name"])
+        )
+
+    conn.commit()
+    conn.close()
+
+    return "Roster uploaded successfully"

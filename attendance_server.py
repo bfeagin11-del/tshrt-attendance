@@ -1,11 +1,8 @@
 import sqlite3
 from flask import Flask, render_template_string, request
-from datetime import datetime, time
+from datetime import datetime
 
 DB_PATH = "tshrt.db"
-
-CHECKIN_START = time(18,0)
-CHECKIN_END = time(19,45)
 
 app = Flask(__name__)
 
@@ -90,11 +87,6 @@ def log_attendance(client_id):
 @app.route("/checkin", methods=["GET","POST"])
 def checkin():
 
-    now = datetime.now().time()
-
-    if not (CHECKIN_START <= now <= CHECKIN_END):
-        return "Check-in closed. Window is 18:00–19:45."
-
     if request.method == "POST":
 
         client_id = request.form["client_id"]
@@ -107,7 +99,7 @@ def checkin():
     html = """
     <h1>TSHRT Class Check-In</h1>
 
-    <p>Check-in Window: 18:00 – 19:45</p>
+    <p>Tap your name to check in.</p>
 
     <form method="post">
 
@@ -239,7 +231,3 @@ def coach_checkin():
     """
 
     return render_template_string(html, clients=clients)
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)

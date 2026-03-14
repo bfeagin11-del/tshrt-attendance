@@ -8,8 +8,6 @@ DB_PATH = "tshrt.db"
 app = Flask(__name__)
 
 
-# ---------------- DATABASE ----------------
-
 def init_db():
 
     conn = sqlite3.connect(DB_PATH)
@@ -33,8 +31,6 @@ def init_db():
     conn.close()
 
 
-# ---------------- CLIENT LIST ----------------
-
 def get_clients():
 
     conn = sqlite3.connect(DB_PATH)
@@ -50,8 +46,6 @@ def get_clients():
 
     return rows
 
-
-# ---------------- CHALLENGE BOARD ----------------
 
 @app.route("/challenge_board", methods=["GET","POST"])
 def challenge_board():
@@ -79,8 +73,6 @@ def challenge_board():
 
     lookup = {(a["client_id"], a["session_date"]) for a in attendance}
 
-
-    # -------- SAVE BULK ATTENDANCE --------
 
     if request.method == "POST":
 
@@ -111,18 +103,25 @@ def challenge_board():
 
     <style>
 
-    table{border-collapse:collapse}
+    table {border-collapse:collapse}
 
-    td,th{padding:8px;border:1px solid #ccc;text-align:center}
+    td,th {
+        border:1px solid #ccc;
+        padding:10px;
+        text-align:center;
+    }
 
-    input[type=checkbox]{width:20px;height:20px}
+    input[type=checkbox] {
+        width:22px;
+        height:22px;
+        cursor:pointer;
+    }
 
     </style>
 
     <table>
 
     <tr>
-
         <th>Client</th>
 
         {% for d in dates %}
@@ -145,8 +144,11 @@ def challenge_board():
 
         <input type="checkbox"
         name="{{key}}"
+        value="1"
 
-        {% if (c['id'],d) in lookup %}checked{% endif %}
+        {% if (c['id'],d) in lookup %}
+        checked
+        {% endif %}
 
         >
 
@@ -176,8 +178,6 @@ def challenge_board():
     )
 
 
-# ---------------- ROSTER UPLOAD ----------------
-
 @app.route("/upload_roster", methods=["POST"])
 def upload_roster():
 
@@ -203,7 +203,6 @@ def upload_roster():
 
 
 init_db()
-
 
 if __name__ == "__main__":
 

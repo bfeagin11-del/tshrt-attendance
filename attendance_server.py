@@ -102,13 +102,11 @@ def challenge_board():
 
 <style>
 
-.board-container{
-    overflow:auto;
-    max-height:75vh;
-    border:1px solid #ccc;
+.wrapper{
+    overflow-x:auto;
 }
 
-/* table layout */
+/* table structure */
 
 table{
     border-collapse:collapse;
@@ -127,7 +125,7 @@ th,td{
 thead th{
     position:sticky;
     top:0;
-    background:#f4f4f4;
+    background:#f0f0f0;
     z-index:3;
 }
 
@@ -144,17 +142,17 @@ thead th:first-child{
     z-index:4;
 }
 
-/* bigger clickable checkboxes */
+/* larger checkboxes */
 
 input[type=checkbox]{
-    width:22px;
-    height:22px;
+    width:20px;
+    height:20px;
     cursor:pointer;
 }
 
 </style>
 
-<div class="board-container">
+<div class="wrapper">
 
 <table>
 

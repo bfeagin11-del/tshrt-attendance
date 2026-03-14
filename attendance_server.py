@@ -77,6 +77,8 @@ def log_attendance(client_id):
         pass
 
 
+# ---------------- CLIENT CHECK-IN ----------------
+
 @app.route("/checkin", methods=["GET", "POST"])
 def checkin():
 
@@ -88,6 +90,7 @@ def checkin():
     groups = get_clients()
 
     html = """
+
     <h1>TSHRT Class Check-In</h1>
     <p>Tap your name to check in.</p>
 
@@ -112,14 +115,17 @@ def checkin():
     <form method="post">
 
     {% for group, clients in groups.items() %}
+
         <h3>{{group}}</h3>
 
         <div class="grid">
+
         {% for c in clients %}
             <button name="client_id" value="{{c['id']}}">
                 {{c['full_name']}}
             </button>
         {% endfor %}
+
         </div>
 
     {% endfor %}
@@ -129,6 +135,8 @@ def checkin():
 
     return render_template_string(html, groups=groups)
 
+
+# ---------------- COACH DASHBOARD ----------------
 
 @app.route("/coach")
 def coach():
@@ -150,21 +158,101 @@ def coach():
         rows = []
 
     html = """
+
     <h1>TSHRT Coach Dashboard</h1>
     <h2>Attendance Today</h2>
 
     {% if rows %}
+
         <p><b>{{rows|length}} Checked In</b></p>
+
         {% for r in rows %}
             <p>✔ {{r['full_name']}}</p>
         {% endfor %}
+
     {% else %}
+
         <p>No one has checked in yet.</p>
+
     {% endif %}
+
     """
 
     return render_template_string(html, rows=rows)
 
+
+# ---------------- COACH BULK ATTENDANCE ----------------
+
+@app.route("/coach_checkin", methods=["GET","POST"])
+def coach_checkin():
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    clients = conn.execute("""
+        SELECT id, full_name
+        FROM clients
+        ORDER BY full_name
+    """).fetchall()
+
+    conn.close()
+
+    if request.method == "POST":
+
+        today = datetime.today().date()
+        challenge_id = get_active_challenge()
+
+        selected = request.form.getlist("client")
+
+        conn = sqlite3.connect(DB_PATH)
+
+        for cid in selected:
+
+            existing = conn.execute("""
+                SELECT id FROM attendance
+                WHERE client_id=? AND session_date=?
+            """,(cid, today)).fetchone()
+
+            if not existing:
+
+                conn.execute("""
+                    INSERT INTO attendance
+                    (client_id, challenge_id, session_date)
+                    VALUES (?, ?, ?)
+                """,(cid, challenge_id, today))
+
+        conn.commit()
+        conn.close()
+
+        return "✅ Attendance saved"
+
+    html = """
+
+    <h1>Coach Attendance</h1>
+
+    <p>Everyone is checked by default. Uncheck absences.</p>
+
+    <form method="post">
+
+    {% for c in clients %}
+
+        <input type="checkbox" name="client" value="{{c['id']}}" checked>
+        {{c['full_name']}}<br>
+
+    {% endfor %}
+
+    <br>
+
+    <button>Submit Attendance</button>
+
+    </form>
+
+    """
+
+    return render_template_string(html, clients=clients)
+
+
+# ---------------- ROSTER UPLOAD FROM TSHRT ----------------
 
 @app.route("/upload_roster", methods=["POST"])
 def upload_roster():
@@ -198,6 +286,8 @@ def upload_roster():
 
     return "Roster uploaded successfully"
 
+
+# ---------------- SERVER START (RENDER) ----------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

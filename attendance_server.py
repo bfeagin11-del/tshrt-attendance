@@ -23,8 +23,7 @@ def get_clients():
     except:
         rows = []
 
-    groups = {"Challenge": rows}
-    return groups
+    return {"Challenge": rows}
 
 
 def get_active_challenge():
@@ -90,19 +89,38 @@ def checkin():
 
     html = """
     <h1>TSHRT Class Check-In</h1>
-
     <p>Tap your name to check in.</p>
+
+    <style>
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+        gap: 10px;
+    }
+
+    button {
+        font-size: 18px;
+        padding: 15px;
+        border-radius: 8px;
+        border: none;
+        background: #2c7be5;
+        color: white;
+        width: 100%;
+    }
+    </style>
 
     <form method="post">
 
     {% for group, clients in groups.items() %}
         <h3>{{group}}</h3>
 
+        <div class="grid">
         {% for c in clients %}
             <button name="client_id" value="{{c['id']}}">
                 {{c['full_name']}}
-            </button><br><br>
+            </button>
         {% endfor %}
+        </div>
 
     {% endfor %}
 
@@ -133,12 +151,10 @@ def coach():
 
     html = """
     <h1>TSHRT Coach Dashboard</h1>
-
     <h2>Attendance Today</h2>
 
     {% if rows %}
         <p><b>{{rows|length}} Checked In</b></p>
-
         {% for r in rows %}
             <p>✔ {{r['full_name']}}</p>
         {% endfor %}
@@ -149,8 +165,6 @@ def coach():
 
     return render_template_string(html, rows=rows)
 
-
-# -------- CLOUD ROSTER UPLOAD ENDPOINT --------
 
 @app.route("/upload_roster", methods=["POST"])
 def upload_roster():
@@ -184,8 +198,6 @@ def upload_roster():
 
     return "Roster uploaded successfully"
 
-
-# -------- SERVER START --------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

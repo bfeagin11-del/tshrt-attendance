@@ -1,6 +1,7 @@
 import sqlite3
 from flask import Flask, render_template_string, request
 from datetime import datetime
+import os
 
 DB_PATH = "tshrt.db"
 
@@ -149,12 +150,9 @@ def coach():
     return render_template_string(html, rows=rows)
 
 
-import os
+# -------- CLOUD ROSTER UPLOAD ENDPOINT --------
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-    @app.route("/upload_roster", methods=["POST"])
+@app.route("/upload_roster", methods=["POST"])
 def upload_roster():
 
     data = request.get_json()
@@ -165,6 +163,13 @@ def upload_roster():
     clients = data.get("clients", [])
 
     conn = sqlite3.connect(DB_PATH)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        id INTEGER PRIMARY KEY,
+        full_name TEXT
+    )
+    """)
 
     conn.execute("DELETE FROM clients")
 
@@ -178,3 +183,10 @@ def upload_roster():
     conn.close()
 
     return "Roster uploaded successfully"
+
+
+# -------- SERVER START --------
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

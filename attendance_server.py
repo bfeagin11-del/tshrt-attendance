@@ -429,22 +429,44 @@ document.querySelectorAll('label').forEach(function(label) {
 
 @app.route("/upload_roster", methods=["POST"])
 def upload_roster():
-    data = request.get_json()
-    clients = data.get("clients", [])
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM clients")
+    try:
+        data = request.get_json()
 
-    for c in clients:
-        conn.execute("""
-            INSERT INTO clients (id, full_name)
-            VALUES (?, ?)
-        """, (c["id"], c["full_name"]))
+        if not data or "clients" not in data:
+            return "No client data received", 400
 
-    conn.commit()
-    conn.close()
+        clients = data["clients"]
 
-    return "Roster uploaded successfully"
+        conn = sqlite3.connect(DB_PATH)
+
+        conn.execute("DELETE FROM clients")
+
+        inserted = 0
+
+        for c in clients:
+
+            cid = str(c.get("id", "")).strip()
+            name = str(c.get("full_name", "")).strip()
+
+            if not cid or not name:
+                continue
+
+            conn.execute(
+                "INSERT INTO clients (id, full_name) VALUES (?, ?)",
+                (cid, name)
+            )
+
+            inserted += 1
+
+        conn.commit()
+        conn.close()
+
+        return f"Roster uploaded successfully ({inserted} clients)"
+
+    except Exception as e:
+
+        return f"Server error: {str(e)}", 500
 
 
 init_db()

@@ -288,10 +288,10 @@ try:
 
     for c in clients:
 
-        name = str(c.get("full_name","")).strip()
+    name = str(c.get("full_name") or c.get("name") or "").strip()
 
-        if not name:
-            continue
+    if not name:
+        continue
 
         conn.execute(
             "INSERT INTO clients (full_name) VALUES (?)",

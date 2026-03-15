@@ -5,7 +5,7 @@ from datetime import date
 
 DB_PATH = "tshrt.db"
 
-app = Flask(**name**)
+app = Flask(__name__)
 
 # ---------------- DATABASE ----------------
 

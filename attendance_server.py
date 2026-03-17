@@ -3,16 +3,31 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
 import os
+import json
 
 app = Flask(__name__)
 
 # ============================================================
-# STORAGE
+# FILE STORAGE
 # ============================================================
 
-CLIENT_ROSTER = []
-ATTENDANCE = {}
-POINTS = {}
+DATA_FILE = "roster_data.json"
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "clients": [],
+        "attendance": {},
+        "points": {}
+    }
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+DATA = load_data()
 
 # ============================================================
 # HOME
@@ -29,82 +44,64 @@ def home():
 
 @app.route("/api/roster/sync", methods=["POST"])
 def roster_sync():
-    global CLIENT_ROSTER, POINTS
+    global DATA
 
-    data = request.get_json()
+    incoming = request.get_json()
 
-    if not data or "clients" not in data:
+    if not incoming or "clients" not in incoming:
         return jsonify({"status": "error"}), 400
 
-    CLIENT_ROSTER = data["clients"]
+    DATA["clients"] = incoming["clients"]
 
-    # initialize points
-    for c in CLIENT_ROSTER:
+    # ensure points exist
+    for c in DATA["clients"]:
         cid = c.get("client_id")
-        if cid not in POINTS:
-            POINTS[cid] = 0
+        if cid not in DATA["points"]:
+            DATA["points"][cid] = 0
 
-    print(f"\n✅ Roster synced: {len(CLIENT_ROSTER)} clients\n")
+    save_data(DATA)
 
-    return jsonify({"status": "success", "count": len(CLIENT_ROSTER)})
+    print(f"✅ Roster saved: {len(DATA['clients'])} clients")
+
+    return jsonify({"status": "success", "count": len(DATA["clients"])})
 
 
 # ============================================================
-# CHECK-IN ENDPOINT
+# CHECK-IN
 # ============================================================
 
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
+    global DATA
+
     data = request.get_json()
 
     client_id = data.get("client_id")
     name = data.get("name")
 
-    if not client_id:
-        return jsonify({"status": "error", "message": "missing id"}), 400
-
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # attendance tracking
-    if today not in ATTENDANCE:
-        ATTENDANCE[today] = set()
+    if today not in DATA["attendance"]:
+        DATA["attendance"][today] = []
 
-    if client_id in ATTENDANCE[today]:
-        return jsonify({
-            "status": "duplicate",
-            "message": f"{name} already checked in"
-        })
+    if client_id in DATA["attendance"][today]:
+        return jsonify({"status": "duplicate"})
 
-    ATTENDANCE[today].add(client_id)
+    DATA["attendance"][today].append(client_id)
+    DATA["points"][client_id] = DATA["points"].get(client_id, 0) + 1
 
-    # update points
-    POINTS[client_id] = POINTS.get(client_id, 0) + 1
+    save_data(DATA)
 
-    print(f"✅ CHECK-IN: {name} | Points: {POINTS[client_id]}")
+    print(f"CHECK-IN: {name} ({DATA['points'][client_id]} pts)")
 
     return jsonify({
         "status": "success",
-        "client_id": client_id,
-        "name": name,
-        "points": POINTS[client_id],
-        "date": today
+        "points": DATA["points"][client_id]
     })
 
 
 # ============================================================
-# GET ATTENDANCE (FOR REPORTING)
-# ============================================================
-
-@app.route("/api/attendance", methods=["GET"])
-def get_attendance():
-    return jsonify({
-        "attendance": {k: list(v) for k, v in ATTENDANCE.items()},
-        "points": POINTS
-    })
-
-
-# ============================================================
-# CHECK-IN PAGE (INTERACTIVE)
+# CHECK-IN PAGE
 # ============================================================
 
 @app.route("/checkin")
@@ -112,13 +109,18 @@ def checkin_page():
 
     html = "<h2>TSHRT Check-In</h2>"
 
-    for c in CLIENT_ROSTER:
+    clients = DATA.get("clients", [])
+
+    if not clients:
+        return "<h2>No clients loaded. Run sync.</h2>"
+
+    for c in clients:
         cid = c.get("client_id")
         name = c.get("display_name")
 
         html += f"""
         <div style="margin:10px;">
-            <button onclick="checkin('{cid}', '{name}')">{name}</button>
+            <button onclick="checkin('{cid}','{name}')">{name}</button>
             <span id="{cid}"></span>
         </div>
         """
@@ -136,10 +138,10 @@ def checkin_page():
             let el = document.getElementById(id);
 
             if(data.status === 'success'){
-                el.innerHTML = " ✅ Checked In (" + data.points + " pts)";
+                el.innerHTML = " ✅ (" + data.points + " pts)";
             }
-            else if(data.status === 'duplicate'){
-                el.innerHTML = " ⚠ Already Checked In";
+            else{
+                el.innerHTML = " ⚠ Already";
             }
         });
     }

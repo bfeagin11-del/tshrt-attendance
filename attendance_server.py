@@ -42,62 +42,86 @@ def home():
 # ROSTER SYNC
 # ============================================================
 
-@app.route("/api/roster/sync", methods=["POST"])
-def roster_sync():
-    global DATA
+@app.route("/checkin")
+def checkin_page():
 
-    incoming = request.get_json()
+    html = """
+    <html>
+    <head>
+        <title>TSHRT Check-In</title>
+        <style>
+            body {
+                font-family: Arial;
+                text-align: center;
+            }
+            .client {
+                margin: 10px;
+                padding: 15px;
+                border: 2px solid #333;
+                border-radius: 8px;
+                cursor: pointer;
+                display: inline-block;
+                width: 250px;
+                background-color: #f2f2f2;
+                transition: 0.2s;
+            }
+            .client:hover {
+                background-color: #ddd;
+            }
+            .checked {
+                background-color: #4CAF50 !important;
+                color: white;
+            }
+            .duplicate {
+                background-color: #f39c12 !important;
+                color: white;
+            }
+        </style>
+    </head>
+    <body>
 
-    if not incoming or "clients" not in incoming:
-        return jsonify({"status": "error"}), 400
+    <h2>TSHRT Check-In</h2>
+    """
 
-    DATA["clients"] = incoming["clients"]
-
-    # ensure points exist
-    for c in DATA["clients"]:
+    for c in CLIENT_ROSTER:
         cid = c.get("client_id")
-        if cid not in DATA["points"]:
-            DATA["points"][cid] = 0
+        name = c.get("display_name")
 
-    save_data(DATA)
+        html += f"""
+        <div class="client" id="{cid}" onclick="checkin('{cid}', '{name}')">
+            {name}
+        </div>
+        """
 
-    print(f"✅ Roster saved: {len(DATA['clients'])} clients")
+    html += """
+    <script>
+    function checkin(id, name){
+        fetch('/api/checkin', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({client_id:id, name:name})
+        })
+        .then(r=>r.json())
+        .then(data=>{
+            let el = document.getElementById(id);
 
-    return jsonify({"status": "success", "count": len(DATA["clients"])})
+            if(data.status === 'success'){
+                el.classList.add("checked");
+                el.innerHTML = name + " ✔";
+            }
+            else if(data.status === 'duplicate'){
+                el.classList.add("duplicate");
+                el.innerHTML = name + " (Already)";
+            }
+        });
+    }
+    </script>
 
+    </body>
+    </html>
+    """
 
-# ============================================================
-# CHECK-IN
-# ============================================================
-
-@app.route("/api/checkin", methods=["POST"])
-def checkin():
-    global DATA
-
-    data = request.get_json()
-
-    client_id = data.get("client_id")
-    name = data.get("name")
-
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    if today not in DATA["attendance"]:
-        DATA["attendance"][today] = []
-
-    if client_id in DATA["attendance"][today]:
-        return jsonify({"status": "duplicate"})
-
-    DATA["attendance"][today].append(client_id)
-    DATA["points"][client_id] = DATA["points"].get(client_id, 0) + 1
-
-    save_data(DATA)
-
-    print(f"CHECK-IN: {name} ({DATA['points'][client_id]} pts)")
-
-    return jsonify({
-        "status": "success",
-        "points": DATA["points"][client_id]
-    })
+    return html
 
 
 # ============================================================

@@ -293,8 +293,8 @@ def checkin_page():
 @app.route("/board")
 def display_board():
 
-    clients = DATA["clients"]
-    attendance = DATA["attendance"]
+    clients = DATA.get("clients", [])
+    attendance = DATA.get("attendance", {})
 
     challenge_start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     challenge_end = challenge_start + timedelta(days=42)
@@ -302,8 +302,8 @@ def display_board():
     board = []
 
     for c in clients:
-        cid = c["client_id"]
-        name = c["display_name"]
+        cid = c.get("client_id")
+        name = c.get("display_name", "")
         name_key = name.lower()
 
         challenge_points = 0
@@ -313,9 +313,12 @@ def display_board():
             if cid in attendees:
                 attendance_points += 1
 
-                d = datetime.strptime(date_str, "%Y-%m-%d")
-                if challenge_start <= d <= challenge_end:
-                    challenge_points += 1
+                try:
+                    d = datetime.strptime(date_str, "%Y-%m-%d")
+                    if challenge_start <= d <= challenge_end:
+                        challenge_points += 1
+                except:
+                    pass
 
         base_lifetime = LIFETIME_BASE.get(name_key, 0)
         lifetime_total = base_lifetime + attendance_points
@@ -326,8 +329,10 @@ def display_board():
             "lifetime": lifetime_total
         })
 
+    # SORT
     board.sort(key=lambda x: x["challenge"], reverse=True)
 
+    # BUILD HTML
     html = """
     <html>
     <head>
@@ -367,19 +372,18 @@ def display_board():
     <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
     """
 
-    rank = 1
     if not board:
-    html += "<div class='row'>NO DATA FOUND</div>"
-else:
-    rank = 1
-    for r in board[:10]:
-        html += f"""
-        <div class="row">
-            <span class="rank">#{rank}</span> {r['name']}
-            <span class="points">C:{r['challenge']} | L:{r['lifetime']}</span>
-        </div>
-        """
-        rank += 1
+        html += "<div class='row'>NO DATA FOUND</div>"
+    else:
+        rank = 1
+        for r in board[:10]:
+            html += f"""
+            <div class="row">
+                <span class="rank">#{rank}</span> {r['name']}
+                <span class="points">C:{r['challenge']} | L:{r['lifetime']}</span>
+            </div>
+            """
+            rank += 1
 
     html += "</body></html>"
 

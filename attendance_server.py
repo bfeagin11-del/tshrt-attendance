@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import json
 
@@ -24,164 +24,163 @@ def save_data(data):
 DATA = load_data()
 
 
-@app.route("/")
-def home():
-    return "TSHRT Attendance Server Running"
-
-
-# =========================
-# ROSTER SYNC
-# =========================
 @app.route("/api/roster/sync", methods=["POST"])
 def roster_sync():
     global DATA
-
     incoming = request.get_json()
 
-    if not incoming or "clients" not in incoming:
-        return jsonify({"status": "error"}), 400
-
-    DATA["clients"] = incoming["clients"]
+    DATA["clients"] = incoming.get("clients", [])
 
     for c in DATA["clients"]:
-        cid = c.get("client_id")
+        cid = c["client_id"]
         if cid not in DATA["points"]:
             DATA["points"][cid] = 0
 
     save_data(DATA)
+    return jsonify({"status": "success"})
 
-    return jsonify({"status": "success", "count": len(DATA["clients"])})
 
-
-# =========================
-# TOGGLE CHECK-IN (FULL CONTROL)
-# =========================
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
     global DATA
-
     data = request.get_json()
 
-    client_id = data.get("client_id")
-    date = data.get("date")
-
-    if not date:
-        date = datetime.now().strftime("%Y-%m-%d")
+    cid = data["client_id"]
+    date = data["date"]
 
     if date not in DATA["attendance"]:
         DATA["attendance"][date] = []
 
-    # TOGGLE
-    if client_id in DATA["attendance"][date]:
-        DATA["attendance"][date].remove(client_id)
-        DATA["points"][client_id] = max(0, DATA["points"].get(client_id, 0) - 1)
-        save_data(DATA)
-        return jsonify({"status": "removed"})
+    if cid in DATA["attendance"][date]:
+        DATA["attendance"][date].remove(cid)
+        DATA["points"][cid] = max(0, DATA["points"].get(cid, 0) - 1)
+        status = "removed"
     else:
-        DATA["attendance"][date].append(client_id)
-        DATA["points"][client_id] = DATA["points"].get(client_id, 0) + 1
-        save_data(DATA)
-        return jsonify({"status": "added"})
+        DATA["attendance"][date].append(cid)
+        DATA["points"][cid] = DATA["points"].get(cid, 0) + 1
+        status = "added"
+
+    save_data(DATA)
+    return jsonify({"status": status})
 
 
-# =========================
-# GET ATTENDANCE BY DATE
-# =========================
-@app.route("/api/attendance/<date>", methods=["GET"])
+@app.route("/api/attendance/<date>")
 def get_attendance(date):
     return jsonify({
-        "attendance": DATA["attendance"].get(date, []),
-        "total": len(DATA["attendance"].get(date, []))
+        "attendance": DATA["attendance"].get(date, [])
     })
 
 
-# =========================
-# CHECK-IN PAGE (FULL UI)
-# =========================
 @app.route("/checkin")
 def checkin_page():
 
-    html = """
+    # Generate 42 days (6 weeks)
+    start = datetime.now() - timedelta(days=41)
+    dates = [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(42)]
+
+    html = f"""
     <html>
     <head>
-        <title>TSHRT Attendance</title>
-        <style>
-            body { font-family: Arial; text-align: center; }
-            .client {
-                margin: 8px;
-                padding: 12px;
-                border: 2px solid #333;
-                border-radius: 8px;
-                cursor: pointer;
-                display: inline-block;
-                width: 220px;
-                background-color: #eee;
-            }
-            .checked { background-color: #4CAF50; color: white; }
-            .header { margin-bottom: 20px; }
-        </style>
+    <style>
+    body {{ font-family: Arial; text-align:center; }}
+
+    .date {{ 
+        display:inline-block; 
+        padding:8px; 
+        margin:4px; 
+        border:1px solid #333; 
+        cursor:pointer;
+    }}
+
+    .active {{ background:#333; color:white; }}
+
+    .client {{
+        display:inline-block;
+        width:200px;
+        margin:6px;
+        padding:10px;
+        border:1px solid #333;
+        cursor:pointer;
+        background:#eee;
+    }}
+
+    .checked {{ background:green; color:white; }}
+    </style>
     </head>
     <body>
 
-    <h2>TSHRT Attendance</h2>
+    <h2>6-Week Attendance Board</h2>
 
-    <div class="header">
-        <input type="date" id="datePicker">
-        <h3 id="count"></h3>
+    <div id="dates">
+    """
+
+    for d in dates:
+        html += f'<div class="date" onclick="selectDate(\'{d}\')" id="d_{d}">{d[5:]}</div>'
+
+    html += """
     </div>
+
+    <h3 id="currentDate"></h3>
+    <h4 id="count"></h4>
 
     <div id="clients"></div>
 
     <script>
     let clients = """ + json.dumps(DATA["clients"]) + """;
+    let currentDate = "";
+
+    function selectDate(date){
+        currentDate = date;
+
+        document.querySelectorAll('.date').forEach(el => el.classList.remove('active'));
+        document.getElementById("d_" + date).classList.add("active");
+
+        document.getElementById("currentDate").innerText = date;
+
+        loadAttendance();
+    }
 
     function loadAttendance(){
-        let date = document.getElementById("datePicker").value;
-
-        fetch("/api/attendance/" + date)
+        fetch("/api/attendance/" + currentDate)
         .then(r=>r.json())
         .then(data=>{
             let present = data.attendance;
 
-            document.getElementById("count").innerHTML =
-                "Attendance: " + data.total + " / " + clients.length;
-
             let html = "";
+            let count = 0;
 
             clients.forEach(c=>{
                 let checked = present.includes(c.client_id);
+                if(checked) count++;
 
                 html += `
                 <div class="client ${checked ? 'checked' : ''}"
-                    onclick="toggle('${c.client_id}')"
-                    id="${c.client_id}">
+                    onclick="toggle('${c.client_id}')">
                     ${c.display_name}
                 </div>`;
             });
 
             document.getElementById("clients").innerHTML = html;
+            document.getElementById("count").innerText =
+                "Attendance: " + count + " / " + clients.length;
         });
     }
 
-    function toggle(id){
-        let date = document.getElementById("datePicker").value;
-
-        fetch('/api/checkin', {
+    function toggle(cid){
+        fetch("/api/checkin", {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({
-                client_id:id,
-                date:date
+                client_id: cid,
+                date: currentDate
             })
         })
         .then(()=>loadAttendance());
     }
 
-    // DEFAULT TODAY
+    // Default = today
     let today = new Date().toISOString().split('T')[0];
-    document.getElementById("datePicker").value = today;
-
-    loadAttendance();
+    selectDate(today);
     </script>
 
     </body>

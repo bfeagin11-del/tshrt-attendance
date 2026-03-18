@@ -1,0 +1,398 @@
+[
+  {
+    "name": "Paola Sandoval",
+    "file": "Sandoval_Paola.json",
+    "snapshot_score": 31,
+    "lifetime_score": 15,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 5,
+      "smm_progress": 0,
+      "visceral_progress": 6,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 4,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Bennie Feagin",
+    "file": "Feagin_Bennie.json",
+    "snapshot_score": 43,
+    "lifetime_score": 9,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 3,
+      "visceral_progress": 6,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Luis Ibarra",
+    "file": "Ibarra_Luis.json",
+    "snapshot_score": 46,
+    "lifetime_score": 6,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 6,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Mariana Ibarra",
+    "file": "Ibarra_Mariana.json",
+    "snapshot_score": 35,
+    "lifetime_score": 2,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": -3,
+      "visceral_progress": 0,
+      "ecw_progress": 5,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "America Martinez",
+    "file": "Martinez_America.json",
+    "snapshot_score": 25,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Aracely Gomez",
+    "file": "Gomez_Aracely.json",
+    "snapshot_score": 36,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Brandon Battle",
+    "file": "Brandon_Battle.json",
+    "snapshot_score": 46,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "CCA Mussen",
+    "file": "Mussen_CCA.json",
+    "snapshot_score": 46,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Carolyn Rasmussen",
+    "file": "Rasmussen_Carolyn.json",
+    "snapshot_score": 42,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Denisse Guerrero",
+    "file": "Guerrero_Denisse.json",
+    "snapshot_score": 35,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Eduardo Carrasco",
+    "file": "Carrasco_Eduardo.json",
+    "snapshot_score": 42,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Erica Torres",
+    "file": "Torres_Erica.json",
+    "snapshot_score": 9,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Jade Young",
+    "file": "Young_Jade.json",
+    "snapshot_score": 42,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Melizza Feagin",
+    "file": "Feagin_Melizza.json",
+    "snapshot_score": 19,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Michelle Lozano",
+    "file": "Lozano_Michelle.json",
+    "snapshot_score": 31,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Pablo Rojas",
+    "file": "Rojas_Pablo.json",
+    "snapshot_score": 42,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Paloma Lozano",
+    "file": "Lozano_Paloma.json",
+    "snapshot_score": 38,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Rosalba Cortez",
+    "file": "Cortez_Rosalba.json",
+    "snapshot_score": 12,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Stephanie Morales",
+    "file": "Morales_Stephanie.json",
+    "snapshot_score": 22,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Tracy DeLa Cruz",
+    "file": "DeLa_Cruz_Tracy.json",
+    "snapshot_score": 46,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Viviana Example",
+    "file": "Example_Viviana.json",
+    "snapshot_score": 28,
+    "lifetime_score": 0,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": 0,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  },
+  {
+    "name": "Deborah Crawford",
+    "file": "Crawford_Deborah.json",
+    "snapshot_score": 50,
+    "lifetime_score": -3,
+    "attendance_count": 0,
+    "attendance_points": 0,
+    "lifetime_breakdown": {
+      "pbf_progress": 0,
+      "smm_progress": -3,
+      "visceral_progress": 0,
+      "ecw_progress": 0,
+      "arms_progress": 0,
+      "trunk_progress": 0,
+      "legs_progress": 0,
+      "attendance": 0
+    }
+  }
+]

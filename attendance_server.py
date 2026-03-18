@@ -33,15 +33,6 @@ DATA = load_data()
 # HOME
 # ============================================================
 
-@app.route("/")
-def home():
-    return "TSHRT Attendance Server Running"
-
-
-# ============================================================
-# ROSTER SYNC
-# ============================================================
-
 @app.route("/checkin")
 def checkin_page():
 

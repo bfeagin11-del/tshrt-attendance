@@ -15,9 +15,7 @@ def load_data():
             return json.load(f)
     return {
         "clients": [],
-        "attendance": {},
-        "challenge_points": {},
-        "lifetime_points": {}
+        "attendance": {}
     }
 
 def save_data(data):
@@ -37,21 +35,12 @@ def roster_sync():
 
     DATA["clients"] = incoming.get("clients", [])
 
-    for c in DATA["clients"]:
-        cid = c["client_id"]
-
-        if cid not in DATA["challenge_points"]:
-            DATA["challenge_points"][cid] = 0
-
-        if cid not in DATA["lifetime_points"]:
-            DATA["lifetime_points"][cid] = 0
-
     save_data(DATA)
     return jsonify({"status": "success"})
 
 
 # =========================
-# CHECK-IN (AUTO POINTS)
+# CHECK-IN (NO STORED POINTS)
 # =========================
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
@@ -65,20 +54,10 @@ def checkin():
         DATA["attendance"][date] = []
 
     if cid in DATA["attendance"][date]:
-        # REMOVE
         DATA["attendance"][date].remove(cid)
-
-        DATA["challenge_points"][cid] = max(0, DATA["challenge_points"].get(cid, 0) - 1)
-        DATA["lifetime_points"][cid] = max(0, DATA["lifetime_points"].get(cid, 0) - 1)
-
         status = "removed"
     else:
-        # ADD
         DATA["attendance"][date].append(cid)
-
-        DATA["challenge_points"][cid] = DATA["challenge_points"].get(cid, 0) + 1
-        DATA["lifetime_points"][cid] = DATA["lifetime_points"].get(cid, 0) + 1
-
         status = "added"
 
     save_data(DATA)
@@ -86,25 +65,49 @@ def checkin():
 
 
 # =========================
-# LEADERBOARD
+# GET ATTENDANCE
+# =========================
+@app.route("/api/attendance/<date>")
+def get_attendance(date):
+    return jsonify({
+        "attendance": DATA["attendance"].get(date, [])
+    })
+
+
+# =========================
+# LEADERBOARD (CALCULATED)
 # =========================
 @app.route("/leaderboard")
 def leaderboard():
 
     clients = DATA["clients"]
+    attendance = DATA["attendance"]
+
+    challenge_start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
+    challenge_end = challenge_start + timedelta(days=42)
 
     board = []
 
     for c in clients:
         cid = c["client_id"]
 
+        challenge_points = 0
+        lifetime_points = 0
+
+        for date_str, attendees in attendance.items():
+            if cid in attendees:
+                lifetime_points += 1
+
+                d = datetime.strptime(date_str, "%Y-%m-%d")
+                if challenge_start <= d <= challenge_end:
+                    challenge_points += 1
+
         board.append({
             "name": c["display_name"],
-            "challenge": DATA["challenge_points"].get(cid, 0),
-            "lifetime": DATA["lifetime_points"].get(cid, 0)
+            "challenge": challenge_points,
+            "lifetime": lifetime_points
         })
 
-    # Sort by challenge points
     board.sort(key=lambda x: x["challenge"], reverse=True)
 
     html = """
@@ -124,7 +127,7 @@ def leaderboard():
 
     .header {
         font-weight:bold;
-        font-size:20px;
+        font-size:24px;
         margin-bottom:20px;
     }
     </style>
@@ -151,7 +154,7 @@ def leaderboard():
 
 
 # =========================
-# CHECK-IN PAGE (UNCHANGED CORE)
+# CHECK-IN PAGE
 # =========================
 @app.route("/checkin")
 def checkin_page():
@@ -198,7 +201,6 @@ def checkin_page():
     for d in dates:
         dt = datetime.strptime(d, "%Y-%m-%d")
         label = dt.strftime("%a %d %b")
-
         html += f'<div class="date" onclick="selectDate(\'{d}\')" id="d_{d}">{label}</div>'
 
     html += """
@@ -271,13 +273,6 @@ def checkin_page():
     """
 
     return html
-
-
-@app.route("/api/attendance/<date>")
-def get_attendance(date):
-    return jsonify({
-        "attendance": DATA["attendance"].get(date, [])
-    })
 
 
 if __name__ == "__main__":

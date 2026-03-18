@@ -6,27 +6,37 @@ import json
 app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
+LIFETIME_FILE = "lifetime_scores.json"
 
 CHALLENGE_START = "2026-03-10"
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+def load_json(path, default):
+    if os.path.exists(path):
+        with open(path, "r") as f:
             return json.load(f)
-    return {
-        "clients": [],
-        "attendance": {}
-    }
+    return default
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
+def save_json(path, data):
+    with open(path, "w") as f:
         json.dump(data, f)
 
-DATA = load_data()
+DATA = load_json(DATA_FILE, {
+    "clients": [],
+    "attendance": {}
+})
+
+# 🔥 LOAD LIFETIME BASELINE
+LIFETIME_BASE = {}
+
+if os.path.exists(LIFETIME_FILE):
+    raw = load_json(LIFETIME_FILE, [])
+    for r in raw:
+        name = r.get("name", "").strip().lower()
+        LIFETIME_BASE[name] = r.get("lifetime_score", 0)
 
 
 # =========================
-# ROSTER SYNC
+# SYNC
 # =========================
 @app.route("/api/roster/sync", methods=["POST"])
 def roster_sync():
@@ -34,19 +44,19 @@ def roster_sync():
     incoming = request.get_json()
 
     DATA["clients"] = incoming.get("clients", [])
+    save_json(DATA_FILE, DATA)
 
-    save_data(DATA)
     return jsonify({"status": "success"})
 
 
 # =========================
-# CHECK-IN (NO STORED POINTS)
+# CHECK-IN
 # =========================
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
     global DATA
-    data = request.get_json()
 
+    data = request.get_json()
     cid = data["client_id"]
     date = data["date"]
 
@@ -60,12 +70,12 @@ def checkin():
         DATA["attendance"][date].append(cid)
         status = "added"
 
-    save_data(DATA)
+    save_json(DATA_FILE, DATA)
     return jsonify({"status": status})
 
 
 # =========================
-# GET ATTENDANCE
+# ATTENDANCE
 # =========================
 @app.route("/api/attendance/<date>")
 def get_attendance(date):
@@ -75,7 +85,7 @@ def get_attendance(date):
 
 
 # =========================
-# LEADERBOARD (CALCULATED)
+# LEADERBOARD (FINAL LOGIC)
 # =========================
 @app.route("/leaderboard")
 def leaderboard():
@@ -90,22 +100,27 @@ def leaderboard():
 
     for c in clients:
         cid = c["client_id"]
+        name = c["display_name"]
+        name_key = name.lower()
 
         challenge_points = 0
-        lifetime_points = 0
+        attendance_points = 0
 
         for date_str, attendees in attendance.items():
             if cid in attendees:
-                lifetime_points += 1
+                attendance_points += 1
 
                 d = datetime.strptime(date_str, "%Y-%m-%d")
                 if challenge_start <= d <= challenge_end:
                     challenge_points += 1
 
+        base_lifetime = LIFETIME_BASE.get(name_key, 0)
+        lifetime_total = base_lifetime + attendance_points
+
         board.append({
-            "name": c["display_name"],
+            "name": name,
             "challenge": challenge_points,
-            "lifetime": lifetime_points
+            "lifetime": lifetime_total
         })
 
     board.sort(key=lambda x: x["challenge"], reverse=True)
@@ -118,17 +133,17 @@ def leaderboard():
 
     .row {
         margin:6px;
-        padding:10px;
+        padding:12px;
         border:1px solid #333;
-        width:400px;
+        width:420px;
         margin-left:auto;
         margin-right:auto;
     }
 
     .header {
-        font-weight:bold;
-        font-size:24px;
+        font-size:26px;
         margin-bottom:20px;
+        font-weight:bold;
     }
     </style>
     </head>
@@ -138,7 +153,6 @@ def leaderboard():
     """
 
     rank = 1
-
     for r in board:
         html += f"""
         <div class="row">
@@ -154,7 +168,7 @@ def leaderboard():
 
 
 # =========================
-# CHECK-IN PAGE
+# CHECK-IN UI
 # =========================
 @app.route("/checkin")
 def checkin_page():

@@ -368,7 +368,11 @@ def display_board():
     """
 
     rank = 1
-    for r in board[:10]:  # top 10
+    if not board:
+    html += "<div class='row'>NO DATA FOUND</div>"
+else:
+    rank = 1
+    for r in board[:10]:
         html += f"""
         <div class="row">
             <span class="rank">#{rank}</span> {r['name']}

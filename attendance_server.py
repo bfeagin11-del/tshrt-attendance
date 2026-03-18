@@ -123,6 +123,46 @@ def checkin_page():
 
     return html
 
+    for c in CLIENT_ROSTER:
+        cid = c.get("client_id")
+        name = c.get("display_name")
+
+        html += f"""
+        <div class="client" id="{cid}" onclick="checkin('{cid}', '{name}')">
+            {name}
+        </div>
+        """
+
+    html += """
+    <script>
+    function checkin(id, name){
+        fetch('/api/checkin', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({client_id:id, name:name})
+        })
+        .then(r=>r.json())
+        .then(data=>{
+            let el = document.getElementById(id);
+
+            if(data.status === 'success'){
+                el.classList.add("checked");
+                el.innerHTML = name + " ✔";
+            }
+            else if(data.status === 'duplicate'){
+                el.classList.add("duplicate");
+                el.innerHTML = name + " (Already)";
+            }
+        });
+    }
+    </script>
+
+    </body>
+    </html>
+    """
+
+    return html
+
 # ============================================================
 # CHECK-IN PAGE
 # ============================================================

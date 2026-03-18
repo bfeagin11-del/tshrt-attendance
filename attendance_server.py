@@ -287,7 +287,99 @@ def checkin_page():
     """
 
     return html
+# =========================
+# DISPLAY BOARD (THE MOON)
+# =========================
+@app.route("/board")
+def display_board():
 
+    clients = DATA["clients"]
+    attendance = DATA["attendance"]
+
+    challenge_start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
+    challenge_end = challenge_start + timedelta(days=42)
+
+    board = []
+
+    for c in clients:
+        cid = c["client_id"]
+        name = c["display_name"]
+        name_key = name.lower()
+
+        challenge_points = 0
+        attendance_points = 0
+
+        for date_str, attendees in attendance.items():
+            if cid in attendees:
+                attendance_points += 1
+
+                d = datetime.strptime(date_str, "%Y-%m-%d")
+                if challenge_start <= d <= challenge_end:
+                    challenge_points += 1
+
+        base_lifetime = LIFETIME_BASE.get(name_key, 0)
+        lifetime_total = base_lifetime + attendance_points
+
+        board.append({
+            "name": name,
+            "challenge": challenge_points,
+            "lifetime": lifetime_total
+        })
+
+    board.sort(key=lambda x: x["challenge"], reverse=True)
+
+    html = """
+    <html>
+    <head>
+    <style>
+    body {
+        font-family: Arial;
+        background:black;
+        color:white;
+        text-align:center;
+    }
+
+    .title {
+        font-size:48px;
+        margin:20px;
+    }
+
+    .row {
+        font-size:28px;
+        padding:12px;
+        margin:6px auto;
+        width:600px;
+        border-bottom:1px solid #444;
+    }
+
+    .rank {
+        color:#FFD700;
+        font-weight:bold;
+    }
+
+    .points {
+        float:right;
+    }
+    </style>
+    </head>
+    <body>
+
+    <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
+    """
+
+    rank = 1
+    for r in board[:10]:  # top 10
+        html += f"""
+        <div class="row">
+            <span class="rank">#{rank}</span> {r['name']}
+            <span class="points">C:{r['challenge']} | L:{r['lifetime']}</span>
+        </div>
+        """
+        rank += 1
+
+    html += "</body></html>"
+
+    return html
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

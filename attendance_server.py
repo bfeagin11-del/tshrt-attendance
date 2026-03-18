@@ -7,6 +7,8 @@ app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
 
+CHALLENGE_START = "2026-03-10"
+
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
@@ -14,7 +16,8 @@ def load_data():
     return {
         "clients": [],
         "attendance": {},
-        "points": {}
+        "challenge_points": {},
+        "lifetime_points": {}
     }
 
 def save_data(data):
@@ -24,6 +27,9 @@ def save_data(data):
 DATA = load_data()
 
 
+# =========================
+# ROSTER SYNC
+# =========================
 @app.route("/api/roster/sync", methods=["POST"])
 def roster_sync():
     global DATA
@@ -33,13 +39,20 @@ def roster_sync():
 
     for c in DATA["clients"]:
         cid = c["client_id"]
-        if cid not in DATA["points"]:
-            DATA["points"][cid] = 0
+
+        if cid not in DATA["challenge_points"]:
+            DATA["challenge_points"][cid] = 0
+
+        if cid not in DATA["lifetime_points"]:
+            DATA["lifetime_points"][cid] = 0
 
     save_data(DATA)
     return jsonify({"status": "success"})
 
 
+# =========================
+# CHECK-IN (AUTO POINTS)
+# =========================
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
     global DATA
@@ -52,30 +65,98 @@ def checkin():
         DATA["attendance"][date] = []
 
     if cid in DATA["attendance"][date]:
+        # REMOVE
         DATA["attendance"][date].remove(cid)
-        DATA["points"][cid] = max(0, DATA["points"].get(cid, 0) - 1)
+
+        DATA["challenge_points"][cid] = max(0, DATA["challenge_points"].get(cid, 0) - 1)
+        DATA["lifetime_points"][cid] = max(0, DATA["lifetime_points"].get(cid, 0) - 1)
+
         status = "removed"
     else:
+        # ADD
         DATA["attendance"][date].append(cid)
-        DATA["points"][cid] = DATA["points"].get(cid, 0) + 1
+
+        DATA["challenge_points"][cid] = DATA["challenge_points"].get(cid, 0) + 1
+        DATA["lifetime_points"][cid] = DATA["lifetime_points"].get(cid, 0) + 1
+
         status = "added"
 
     save_data(DATA)
     return jsonify({"status": status})
 
 
-@app.route("/api/attendance/<date>")
-def get_attendance(date):
-    return jsonify({
-        "attendance": DATA["attendance"].get(date, [])
-    })
+# =========================
+# LEADERBOARD
+# =========================
+@app.route("/leaderboard")
+def leaderboard():
+
+    clients = DATA["clients"]
+
+    board = []
+
+    for c in clients:
+        cid = c["client_id"]
+
+        board.append({
+            "name": c["display_name"],
+            "challenge": DATA["challenge_points"].get(cid, 0),
+            "lifetime": DATA["lifetime_points"].get(cid, 0)
+        })
+
+    # Sort by challenge points
+    board.sort(key=lambda x: x["challenge"], reverse=True)
+
+    html = """
+    <html>
+    <head>
+    <style>
+    body { font-family: Arial; text-align:center; }
+
+    .row {
+        margin:6px;
+        padding:10px;
+        border:1px solid #333;
+        width:400px;
+        margin-left:auto;
+        margin-right:auto;
+    }
+
+    .header {
+        font-weight:bold;
+        font-size:20px;
+        margin-bottom:20px;
+    }
+    </style>
+    </head>
+    <body>
+
+    <div class="header">CHALLENGE LEADERBOARD</div>
+    """
+
+    rank = 1
+
+    for r in board:
+        html += f"""
+        <div class="row">
+            #{rank} — {r['name']}<br>
+            Challenge: {r['challenge']} | Lifetime: {r['lifetime']}
+        </div>
+        """
+        rank += 1
+
+    html += "</body></html>"
+
+    return html
 
 
+# =========================
+# CHECK-IN PAGE (UNCHANGED CORE)
+# =========================
 @app.route("/checkin")
 def checkin_page():
 
-    # Generate 42 days (6 weeks)
-    start = datetime.now() - timedelta(days=41)
+    start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     dates = [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(42)]
 
     html = f"""
@@ -84,11 +165,11 @@ def checkin_page():
     <style>
     body {{ font-family: Arial; text-align:center; }}
 
-    .date {{ 
-        display:inline-block; 
-        padding:8px; 
-        margin:4px; 
-        border:1px solid #333; 
+    .date {{
+        display:inline-block;
+        padding:8px;
+        margin:4px;
+        border:1px solid #333;
         cursor:pointer;
     }}
 
@@ -109,13 +190,16 @@ def checkin_page():
     </head>
     <body>
 
-    <h2>6-Week Attendance Board</h2>
+    <h2>Attendance Board</h2>
 
     <div id="dates">
     """
 
     for d in dates:
-        html += f'<div class="date" onclick="selectDate(\'{d}\')" id="d_{d}">{d[5:]}</div>'
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        label = dt.strftime("%a %d %b")
+
+        html += f'<div class="date" onclick="selectDate(\'{d}\')" id="d_{d}">{label}</div>'
 
     html += """
     </div>
@@ -178,7 +262,6 @@ def checkin_page():
         .then(()=>loadAttendance());
     }
 
-    // Default = today
     let today = new Date().toISOString().split('T')[0];
     selectDate(today);
     </script>
@@ -188,6 +271,13 @@ def checkin_page():
     """
 
     return html
+
+
+@app.route("/api/attendance/<date>")
+def get_attendance(date):
+    return jsonify({
+        "attendance": DATA["attendance"].get(date, [])
+    })
 
 
 if __name__ == "__main__":

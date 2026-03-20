@@ -42,10 +42,6 @@ def save_data():
 
 DATA = load_data()
 
-ensure_client_structures()
-recalc_current_scores()
-save_data()
-
 # ============================================================
 # HELPERS
 # ============================================================
@@ -106,8 +102,7 @@ def ensure_client_structures():
         if cid:
             DATA["challenges"]["current"].setdefault(cid, 0)
             DATA["challenges"]["history"].setdefault(cid, [])
-
-
+ 
 def recalc_current_scores():
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     end = start + timedelta(days=41)
@@ -142,6 +137,11 @@ def recalc_current_scores():
 
     DATA["challenges"]["base"] = base_scores
     DATA["challenges"]["current"] = current_scores
+  
+# ✅ ADD HERE (AFTER FUNCTION IS DEFINED)
+ensure_client_structures()
+recalc_current_scores()
+save_data()
 
 # ============================================================
 # HOME

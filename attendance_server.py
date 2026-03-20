@@ -106,43 +106,39 @@ def ensure_client_structures():
 
 
 def recalc_current_scores():
-    """
-    Current challenge score = total approved attendance entries
-    within the current 6-week challenge window.
-    """
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     end = start + timedelta(days=41)
 
-    current = {}
+    base_scores = {}
+    current_scores = {}
 
     for client in DATA.get("clients", []):
-        cid = get_client_id(client)
+        cid = client.get("client_id")
         if cid:
-            current[cid] = 0
+            base_scores[cid] = 0
+            current_scores[cid] = 0
 
     for date_str, attendees in DATA.get("attendance", {}).items():
+
         try:
             d = datetime.strptime(date_str, "%Y-%m-%d")
-        except Exception:
-            continue
-
-        if not (start <= d <= end):
+        except:
             continue
 
         if not isinstance(attendees, list):
             continue
 
         for cid in attendees:
-            if cid in current:
-                current[cid] += 1
 
-    DATA["challenges"]["current"] = current
+            if d < start:
+                base_scores[cid] += 1
 
+            elif start <= d <= end:
+                if d.weekday() in [0, 2]:
+                    current_scores[cid] += 1
 
-ensure_client_structures()
-recalc_current_scores()
-save_data()
-
+    DATA["challenges"]["base"] = base_scores
+    DATA["challenges"]["current"] = current_scores
 
 # ============================================================
 # HOME

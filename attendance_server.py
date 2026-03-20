@@ -1,52 +1,55 @@
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
-import os
-import json
+import os, json
 
 app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
-LIFETIME_FILE = "lifetime_scores.json"
-
 CHALLENGE_START = "2026-03-10"
 
-def load_json(path, default):
-    if os.path.exists(path):
-        with open(path, "r") as f:
+
+# =========================
+# LOAD / SAVE
+# =========================
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return default
 
-def save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f)
+    return {
+        "clients": [],
+        "attendance": {},
+        "challenges": {
+            "current": {},
+            "history": {}
+        }
+    }
 
-DATA = load_json(DATA_FILE, {
-    "clients": [],
-    "attendance": {}
-})
 
-# 🔥 LOAD LIFETIME BASELINE
-LIFETIME_BASE = {}
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump(DATA, f)
 
-if os.path.exists(LIFETIME_FILE):
-    raw = load_json(LIFETIME_FILE, [])
-    for r in raw:
-        name = r.get("name", "").strip().lower()
-        LIFETIME_BASE[name] = r.get("lifetime_score", 0)
+
+DATA = load_data()
 
 
 # =========================
-# SYNC
+# SYNC CLIENTS
 # =========================
 @app.route("/api/roster/sync", methods=["POST"])
-def roster_sync():
-    global DATA
+def sync():
     incoming = request.get_json()
-
     DATA["clients"] = incoming.get("clients", [])
-    save_json(DATA_FILE, DATA)
 
-    return jsonify({"status": "success"})
+    for c in DATA["clients"]:
+        cid = c["client_id"]
+
+        DATA["challenges"]["current"].setdefault(cid, 0)
+        DATA["challenges"]["history"].setdefault(cid, [])
+
+    save_data()
+    return jsonify({"status": "ok"})
 
 
 # =========================
@@ -54,8 +57,6 @@ def roster_sync():
 # =========================
 @app.route("/api/checkin", methods=["POST"])
 def checkin():
-    global DATA
-
     data = request.get_json()
     cid = data["client_id"]
     date = data["date"]
@@ -65,110 +66,92 @@ def checkin():
 
     if cid in DATA["attendance"][date]:
         DATA["attendance"][date].remove(cid)
-        status = "removed"
+        DATA["challenges"]["current"][cid] -= 1
     else:
         DATA["attendance"][date].append(cid)
-        status = "added"
+        DATA["challenges"]["current"][cid] += 1
 
-    save_json(DATA_FILE, DATA)
-    return jsonify({"status": status})
-
-
-# =========================
-# ATTENDANCE
-# =========================
-@app.route("/api/attendance/<date>")
-def get_attendance(date):
-    return jsonify({
-        "attendance": DATA["attendance"].get(date, [])
-    })
+    save_data()
+    return jsonify({"status": "ok"})
 
 
 # =========================
-# LEADERBOARD (FINAL LOGIC)
+# LOCK CHALLENGE
 # =========================
-@app.route("/leaderboard")
-def leaderboard():
+@app.route("/lock_challenge")
+def lock_challenge():
 
-    clients = DATA["clients"]
-    attendance = DATA["attendance"]
+    for cid, score in DATA["challenges"]["current"].items():
+        if score > 0:
+            DATA["challenges"]["history"][cid].append(score)
+            DATA["challenges"]["current"][cid] = 0
 
-    challenge_start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    challenge_end = challenge_start + timedelta(days=42)
+    save_data()
+    return "Challenge locked!"
 
-    board = []
 
-    for c in clients:
+# =========================
+# LEADERBOARD
+# =========================
+@app.route("/board")
+def board():
+
+    rows = []
+
+    for c in DATA["clients"]:
         cid = c["client_id"]
         name = c["display_name"]
-        name_key = name.lower()
 
-        challenge_points = 0
-        attendance_points = 0
+        current = DATA["challenges"]["current"].get(cid, 0)
+        history = DATA["challenges"]["history"].get(cid, [])
 
-        for date_str, attendees in attendance.items():
-            if cid in attendees:
-                attendance_points += 1
+        lifetime = sum(history) + current
 
-                d = datetime.strptime(date_str, "%Y-%m-%d")
-                if challenge_start <= d <= challenge_end:
-                    challenge_points += 1
-
-        base_lifetime = LIFETIME_BASE.get(name_key, 0)
-        lifetime_total = base_lifetime + attendance_points
-
-        board.append({
+        rows.append({
             "name": name,
-            "challenge": challenge_points,
-            "lifetime": lifetime_total
+            "current": current,
+            "lifetime": lifetime
         })
 
-    board.sort(key=lambda x: x["challenge"], reverse=True)
+    rows.sort(key=lambda x: x["current"], reverse=True)
 
     html = """
     <html>
     <head>
     <style>
-    body { font-family: Arial; text-align:center; }
+    body { background:black; color:white; font-family:Arial; text-align:center; }
+
+    .title { font-size:48px; margin:20px; }
 
     .row {
-        margin:6px;
-        padding:12px;
-        border:1px solid #333;
-        width:420px;
-        margin-left:auto;
-        margin-right:auto;
-    }
-
-    .header {
-        font-size:26px;
-        margin-bottom:20px;
-        font-weight:bold;
+        font-size:28px;
+        margin:10px auto;
+        width:600px;
+        padding:10px;
+        border-bottom:1px solid #444;
     }
     </style>
     </head>
     <body>
 
-    <div class="header">CHALLENGE LEADERBOARD</div>
+    <div class="title">🔥 CHALLENGE BOARD 🔥</div>
     """
 
     rank = 1
-    for r in board:
+    for r in rows[:10]:
         html += f"""
         <div class="row">
-            #{rank} — {r['name']}<br>
-            Challenge: {r['challenge']} | Lifetime: {r['lifetime']}
+            #{rank} {r['name']} — C:{r['current']} | L:{r['lifetime']}
         </div>
         """
         rank += 1
 
     html += "</body></html>"
-
     return html
 
 
 # =========================
-# CHECK-IN UI
+# CHECK-IN PAGE
 # =========================
 @app.route("/checkin")
 def checkin_page():
@@ -176,219 +159,59 @@ def checkin_page():
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     dates = [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(42)]
 
-    html = f"""
-    <html>
-    <head>
-    <style>
-    body {{ font-family: Arial; text-align:center; }}
+    html = f"<h2>Attendance</h2>"
 
-    .date {{
-        display:inline-block;
-        padding:8px;
-        margin:4px;
-        border:1px solid #333;
-        cursor:pointer;
-    }}
-
-    .active {{ background:#333; color:white; }}
-
-    .client {{
-        display:inline-block;
-        width:200px;
-        margin:6px;
-        padding:10px;
-        border:1px solid #333;
-        cursor:pointer;
-        background:#eee;
-    }}
-
-    .checked {{ background:green; color:white; }}
-    </style>
-    </head>
-    <body>
-
-    <h2>Attendance Board</h2>
-
-    <div id="dates">
-    """
-
+    html += "<div>"
     for d in dates:
-        dt = datetime.strptime(d, "%Y-%m-%d")
-        label = dt.strftime("%a %d %b")
-        html += f'<div class="date" onclick="selectDate(\'{d}\')" id="d_{d}">{label}</div>'
-
-    html += """
-    </div>
-
-    <h3 id="currentDate"></h3>
-    <h4 id="count"></h4>
-
-    <div id="clients"></div>
-
-    <script>
-    let clients = """ + json.dumps(DATA["clients"]) + """;
-    let currentDate = "";
-
-    function selectDate(date){
-        currentDate = date;
-
-        document.querySelectorAll('.date').forEach(el => el.classList.remove('active'));
-        document.getElementById("d_" + date).classList.add("active");
-
-        document.getElementById("currentDate").innerText = date;
-
-        loadAttendance();
-    }
-
-    function loadAttendance(){
-        fetch("/api/attendance/" + currentDate)
-        .then(r=>r.json())
-        .then(data=>{
-            let present = data.attendance;
-
-            let html = "";
-            let count = 0;
-
-            clients.forEach(c=>{
-                let checked = present.includes(c.client_id);
-                if(checked) count++;
-
-                html += `
-                <div class="client ${checked ? 'checked' : ''}"
-                    onclick="toggle('${c.client_id}')">
-                    ${c.display_name}
-                </div>`;
-            });
-
-            document.getElementById("clients").innerHTML = html;
-            document.getElementById("count").innerText =
-                "Attendance: " + count + " / " + clients.length;
-        });
-    }
-
-    function toggle(cid){
-        fetch("/api/checkin", {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({
-                client_id: cid,
-                date: currentDate
-            })
-        })
-        .then(()=>loadAttendance());
-    }
-
-    let today = new Date().toISOString().split('T')[0];
-    selectDate(today);
-    </script>
-
-    </body>
-    </html>
-    """
+        html += f"<a href='/day/{d}'>{d}</a> | "
+    html += "</div>"
 
     return html
-# =========================
-# DISPLAY BOARD (THE MOON)
-# =========================
-@app.route("/board")
-def display_board():
 
-    clients = DATA.get("clients", [])
-    attendance = DATA.get("attendance", {})
 
-    challenge_start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    challenge_end = challenge_start + timedelta(days=42)
+@app.route("/day/<date>")
+def day(date):
 
-    board = []
+    present = DATA["attendance"].get(date, [])
 
-    for c in clients:
-        cid = c.get("client_id")
-        name = c.get("display_name", "")
-        name_key = name.lower()
+    html = f"<h3>{date}</h3>"
 
-        challenge_points = 0
-        attendance_points = 0
+    for c in DATA["clients"]:
+        cid = c["client_id"]
+        name = c["display_name"]
 
-        for date_str, attendees in attendance.items():
-            if cid in attendees:
-                attendance_points += 1
+        checked = "✔" if cid in present else "❌"
 
-                try:
-                    d = datetime.strptime(date_str, "%Y-%m-%d")
-                    if challenge_start <= d <= challenge_end:
-                        challenge_points += 1
-                except:
-                    pass
+        html += f"""
+        <div>
+            {name} {checked}
+            <a href="/toggle/{cid}/{date}">[toggle]</a>
+        </div>
+        """
 
-        base_lifetime = LIFETIME_BASE.get(name_key, 0)
-        lifetime_total = base_lifetime + attendance_points
+    return html
 
-        board.append({
-            "name": name,
-            "challenge": challenge_points,
-            "lifetime": lifetime_total
-        })
 
-    # SORT
-    board.sort(key=lambda x: x["challenge"], reverse=True)
+@app.route("/toggle/<cid>/<date>")
+def toggle(cid, date):
 
-    # BUILD HTML
-    html = """
-    <html>
-    <head>
-    <style>
-    body {
-        font-family: Arial;
-        background:black;
-        color:white;
-        text-align:center;
-    }
+    if date not in DATA["attendance"]:
+        DATA["attendance"][date] = []
 
-    .title {
-        font-size:48px;
-        margin:20px;
-    }
-
-    .row {
-        font-size:28px;
-        padding:12px;
-        margin:6px auto;
-        width:600px;
-        border-bottom:1px solid #444;
-    }
-
-    .rank {
-        color:#FFD700;
-        font-weight:bold;
-    }
-
-    .points {
-        float:right;
-    }
-    </style>
-    </head>
-    <body>
-
-    <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
-    """
-
-    if not board:
-        html += "<div class='row'>NO DATA FOUND</div>"
+    if cid in DATA["attendance"][date]:
+        DATA["attendance"][date].remove(cid)
+        DATA["challenges"]["current"][cid] -= 1
     else:
-        rank = 1
-        for r in board[:10]:
-            html += f"""
-            <div class="row">
-                <span class="rank">#{rank}</span> {r['name']}
-                <span class="points">C:{r['challenge']} | L:{r['lifetime']}</span>
-            </div>
-            """
-            rank += 1
+        DATA["attendance"][date].append(cid)
+        DATA["challenges"]["current"][cid] += 1
 
-    html += "</body></html>"
+    save_data()
+    return "OK"
 
-    return html
 
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

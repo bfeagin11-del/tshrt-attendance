@@ -42,6 +42,9 @@ def save_data():
 
 DATA = load_data()
 
+ensure_client_structures()
+recalc_current_scores()
+save_data()
 
 # ============================================================
 # HELPERS

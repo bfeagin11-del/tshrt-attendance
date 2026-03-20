@@ -6,7 +6,7 @@ import json
 app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
-CHALLENGE_START = "2026-03-10"
+CHALLENGE_START = "2026-03-09"
 
 
 # ============================================================

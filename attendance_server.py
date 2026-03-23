@@ -137,6 +137,11 @@ def recalc_current_scores():
 
     DATA["challenges"]["base"] = base_scores
     DATA["challenges"]["current"] = current_scores
+# ===== INITIAL CALCULATION ON SERVER START =====
+ensure_client_structures()
+recalc_current_scores()
+save_data()
+
   
 # ✅ ADD HERE (AFTER FUNCTION IS DEFINED)
 ensure_client_structures()

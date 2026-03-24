@@ -50,11 +50,14 @@ def label(d):
 
 
 def get_attendance_count(cid):
+    DATA = load_data()  # 🔥 FORCE reload
+
     count = 0
     for date in DATA.get("attendance", {}):
         attendees = DATA["attendance"].get(date, [])
         if cid in attendees:
             count += 1
+
     return count
 
 

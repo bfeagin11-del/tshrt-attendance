@@ -141,7 +141,8 @@ def build_rows():
             history_scores = []
 
         history_total = sum(int(x) for x in history_scores if isinstance(x, (int, float)))
-        lifetime_total = base_score + history_total + current_score
+        initial_score = int(client.get("snapshot_score", 0))
+        lifetime_total = initial_score + current_score
 
         rows.append({
             "client_id": cid,

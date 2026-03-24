@@ -7,561 +7,196 @@ app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
 CHALLENGE_START = "2026-03-09"
-CHALLENGE_LENGTH_DAYS = 42
+DAYS = 42
 
 
-# ============================================================
+# ==============================
 # LOAD / SAVE
-# ============================================================
+# ==============================
 
 def load_data():
     if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-    else:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
-
-    data.setdefault("clients", [])
-    data.setdefault("attendance", {})
-    data.setdefault("challenges", {})
-    data["challenges"].setdefault("current", {})
-    data["challenges"].setdefault("history", {})
-
-    return data
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {"clients": [], "attendance": {}}
 
 
 def save_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
+    with open(DATA_FILE, "w") as f:
         json.dump(DATA, f, indent=2)
 
 
 DATA = load_data()
 
 
-# ============================================================
+# ==============================
 # HELPERS
-# ============================================================
+# ==============================
 
-def parse_date(date_str: str):
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except Exception:
-        return None
+def get_dates():
+    start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
+    dates = []
 
+    for i in range(DAYS):
+        d = start + timedelta(days=i)
+        if d.weekday() in [0, 2]:  # Mon/Wed
+            dates.append(d.strftime("%Y-%m-%d"))
 
-def challenge_start_dt():
-    return datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-
-
-def challenge_end_dt():
-    return challenge_start_dt() + timedelta(days=CHALLENGE_LENGTH_DAYS - 1)
+    return dates
 
 
-def get_client_id(client: dict) -> str:
-    return str(client.get("client_id", "")).strip()
+def label(d):
+    return datetime.strptime(d, "%Y-%m-%d").strftime("%a %d %b")
 
 
-def get_client_name(client: dict) -> str:
-    return str(client.get("display_name", "")).strip()
+def get_attendance_count(cid):
+    count = 0
+    for d in DATA["attendance"]:
+        if cid in DATA["attendance"][d]:
+            count += 1
+    return count
 
 
-def get_initial_score(client: dict) -> int:
-    """
-    True lifetime base from the client system.
-    Prefers snapshot_score, then lifetime_score, else 0.
-    """
-    for key in ("snapshot_score", "lifetime_score"):
-        value = client.get(key)
-        try:
-            if value is not None and str(value).strip() != "":
-                return int(round(float(value)))
-        except Exception:
-            pass
-    return 0
-
-
-def ensure_client_structures():
-    DATA.setdefault("challenges", {})
-    DATA["challenges"].setdefault("current", {})
-    DATA["challenges"].setdefault("history", {})
-
-    for client in DATA.get("clients", []):
-        cid = get_client_id(client)
-        if cid:
-            DATA["challenges"]["current"].setdefault(cid, 0)
-            DATA["challenges"]["history"].setdefault(cid, [])
-
-
-def recalc_scores():
-    """
-    Current challenge score:
-    - only dates inside current challenge window
-    - only Monday and Wednesday count
-
-    Lifetime score:
-    - calculated later as:
-      initial client score + history + current
-    """
-    start = challenge_start_dt()
-    end = challenge_end_dt()
-
-    current_scores = {}
-
-    for client in DATA.get("clients", []):
-        cid = get_client_id(client)
-        if cid:
-            current_scores[cid] = 0
-
-    for date_str, attendees in DATA.get("attendance", {}).items():
-        d = parse_date(date_str)
-        if d is None:
-            continue
-
-        if not isinstance(attendees, list):
-            continue
-
-        if not (start <= d <= end):
-            continue
-
-        # Monday = 0, Wednesday = 2
-        if d.weekday() not in [0, 2]:
-            continue
-
-        for cid in attendees:
-            if cid in current_scores:
-                current_scores[cid] += 1
-
-    DATA["challenges"]["current"] = current_scores
-
-
-def build_rows():
-    rows = []
-
-    for client in DATA.get("clients", []):
-        cid = get_client_id(client)
-        name = get_client_name(client)
-
-        initial_score = get_initial_score(client)
-        current_score = int(DATA["challenges"].get("current", {}).get(cid, 0))
-
-        history_scores = DATA["challenges"].get("history", {}).get(cid, [])
-        if not isinstance(history_scores, list):
-            history_scores = []
-
-        history_total = 0
-        for x in history_scores:
-            try:
-                history_total += int(round(float(x)))
-            except Exception:
-                pass
-
-        lifetime_total = initial_score + history_total + current_score
-
-        rows.append({
-            "client_id": cid,
-            "name": name,
-            "initial": initial_score,
-            "current": current_score,
-            "history_total": history_total,
-            "lifetime": lifetime_total,
-        })
-
-    rows.sort(key=lambda r: (-r["current"], -r["lifetime"], r["name"].lower()))
-    return rows
-
-
-def challenge_dates():
-    start = challenge_start_dt()
-    return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(CHALLENGE_LENGTH_DAYS)]
-
-
-def date_label(date_str: str) -> str:
-    d = parse_date(date_str)
-    if d is None:
-        return date_str
-    return d.strftime("%a %d %b")
-
-
-ensure_client_structures()
-recalc_scores()
-save_data()
-
-
-# ============================================================
-# HOME
-# ============================================================
-
-@app.route("/")
-def home():
-    return "TSHRT Attendance Server Running"
-
-
-# ============================================================
+# ==============================
 # SYNC CLIENTS
-# ============================================================
+# ==============================
 
 @app.route("/api/roster/sync", methods=["POST"])
-def sync_roster():
-    payload = request.get_json(silent=True) or {}
-    clients = payload.get("clients", [])
-
-    if not isinstance(clients, list):
-        return jsonify({"status": "error", "message": "clients must be a list"}), 400
-
-    clean_clients = []
-    seen = set()
-
-    for client in clients:
-        if not isinstance(client, dict):
-            continue
-
-        cid = str(client.get("client_id", "")).strip()
-        name = str(client.get("display_name", "")).strip()
-
-        if not cid or not name:
-            continue
-
-        if cid in seen:
-            continue
-
-        seen.add(cid)
-
-        # Preserve any score fields sent from local system
-        clean_clients.append({
-            "client_id": cid,
-            "display_name": name,
-            "first_name": str(client.get("first_name", "")).strip(),
-            "last_name": str(client.get("last_name", "")).strip(),
-            "snapshot_score": client.get("snapshot_score", client.get("lifetime_score", 0)),
-            "lifetime_score": client.get("lifetime_score", client.get("snapshot_score", 0)),
-        })
-
-    DATA["clients"] = clean_clients
-    ensure_client_structures()
-    recalc_scores()
+def sync():
+    payload = request.get_json()
+    DATA["clients"] = payload.get("clients", [])
     save_data()
-
-    return jsonify({
-        "status": "success",
-        "count": len(clean_clients)
-    })
+    return jsonify({"status": "ok"})
 
 
-# ============================================================
-# ATTENDANCE API
-# ============================================================
+# ==============================
+# TOGGLE CHECK
+# ==============================
 
-@app.route("/api/attendance/<date_str>", methods=["GET"])
-def api_attendance(date_str):
-    attendees = DATA.get("attendance", {}).get(date_str, [])
-    if not isinstance(attendees, list):
-        attendees = []
+@app.route("/api/toggle", methods=["POST"])
+def toggle():
+    cid = request.json["client_id"]
+    date = request.json["date"]
 
-    return jsonify({
-        "attendance": attendees,
-        "total": len(attendees)
-    })
+    DATA["attendance"].setdefault(date, [])
 
-
-@app.route("/api/checkin", methods=["POST"])
-def api_checkin():
-    payload = request.get_json(silent=True) or {}
-
-    cid = str(payload.get("client_id", "")).strip()
-    date_str = str(payload.get("date", "")).strip()
-
-    if not cid or not date_str:
-        return jsonify({"status": "error", "message": "client_id and date are required"}), 400
-
-    DATA.setdefault("attendance", {})
-    DATA["attendance"].setdefault(date_str, [])
-
-    attendees = DATA["attendance"][date_str]
-
-    if cid in attendees:
-        attendees.remove(cid)
-        status = "removed"
+    if cid in DATA["attendance"][date]:
+        DATA["attendance"][date].remove(cid)
     else:
-        attendees.append(cid)
-        status = "added"
-
-    recalc_scores()
-    save_data()
-
-    return jsonify({"status": status})
-
-
-@app.route("/api/report_data", methods=["GET"])
-def api_report_data():
-    rows = build_rows()
-    return jsonify({
-        "challenge_start": CHALLENGE_START,
-        "challenge_end": challenge_end_dt().strftime("%Y-%m-%d"),
-        "rows": rows,
-        "attendance": DATA.get("attendance", {})
-    })
-
-
-# ============================================================
-# LOCK CHALLENGE
-# ============================================================
-
-@app.route("/lock_challenge", methods=["GET"])
-def lock_challenge():
-    ensure_client_structures()
-    recalc_scores()
-
-    for cid, score in DATA["challenges"]["current"].items():
-        if score > 0:
-            DATA["challenges"]["history"].setdefault(cid, []).append(score)
-
-    DATA["attendance"] = {}
-    DATA["challenges"]["current"] = {cid: 0 for cid in DATA["challenges"]["current"].keys()}
+        DATA["attendance"][date].append(cid)
 
     save_data()
-    return "Challenge locked and current scores reset."
+    return jsonify({"status": "ok"})
 
 
-# ============================================================
-# LEADERBOARD / BOARD
-# ============================================================
-
-def render_board_html(title: str, subtitle: str, top_only: bool = False):
-    rows = build_rows()
-    if top_only:
-        rows = rows[:10]
-
-    html = f"""
-    <html>
-    <head>
-        <title>{title}</title>
-        <style>
-            body {{
-                background: black;
-                color: white;
-                font-family: Arial, sans-serif;
-                text-align: center;
-                margin: 0;
-                padding: 20px;
-            }}
-            .title {{
-                font-size: 56px;
-                margin: 20px;
-                color: #FFD700;
-                font-weight: bold;
-            }}
-            .subtitle {{
-                font-size: 24px;
-                color: #bbb;
-                margin-bottom: 25px;
-            }}
-            .row {{
-                font-size: 30px;
-                margin: 12px auto;
-                width: 900px;
-                padding: 14px 20px;
-                border-bottom: 1px solid #444;
-                text-align: left;
-            }}
-            .rank {{
-                display: inline-block;
-                width: 80px;
-                color: #FFD700;
-                font-weight: bold;
-            }}
-            .name {{
-                display: inline-block;
-                width: 420px;
-            }}
-            .points {{
-                float: right;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="title">{title}</div>
-        <div class="subtitle">{subtitle}</div>
-    """
-
-    if not rows:
-        html += "<div class='row'>NO DATA FOUND</div>"
-    else:
-        rank = 1
-        for row in rows:
-            html += f"""
-            <div class="row">
-                <span class="rank">#{rank}</span>
-                <span class="name">{row['name']}</span>
-                <span class="points">C:{int(row['current'])} | L:{int(row['lifetime'])}</span>
-            </div>
-            """
-            rank += 1
-
-    html += """
-    </body>
-    </html>
-    """
-    return html
-
-
-@app.route("/leaderboard")
-def leaderboard():
-    return render_board_html("🔥 CHALLENGE LEADERBOARD 🔥", "Current Challenge + Lifetime Progress", top_only=False)
-
-
-@app.route("/board")
-@app.route("/challenge_board")
-@app.route("/coach_checkin")
-def board():
-    return render_board_html("🔥 6 WEEK CHALLENGE 🔥", "Challenge Score + Lifetime Score", top_only=True)
-
-
-@app.route("/coach")
-def coach():
-    return render_board_html("🔥 COACH LEADERBOARD 🔥", "Full Rankings", top_only=False)
-
-
-# ============================================================
-# CHECK-IN PAGE
-# ============================================================
+# ==============================
+# GRID PAGE
+# ==============================
 
 @app.route("/checkin")
-def checkin_page():
-    dates = challenge_dates()
+def grid():
+
+    dates = get_dates()
+    clients = DATA["clients"]
 
     html = """
     <html>
     <head>
-        <title>TSHRT Attendance</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                text-align: center;
-                margin: 0;
-                padding: 20px;
-                background: #f8f8f8;
-            }
-            h2 {
-                margin-bottom: 10px;
-            }
-            .dates {
-                margin-bottom: 20px;
-            }
-            .date {
-                display: inline-block;
-                padding: 8px 10px;
-                margin: 4px;
-                border: 1px solid #333;
-                border-radius: 6px;
-                cursor: pointer;
-                background: white;
-                font-size: 14px;
-            }
-            .active {
-                background: #222 !important;
-                color: white !important;
-            }
-            .client {
-                display: inline-block;
-                width: 220px;
-                margin: 6px;
-                padding: 12px;
-                border: 1px solid #333;
-                border-radius: 8px;
-                cursor: pointer;
-                background: #eee;
-                font-size: 16px;
-            }
-            .checked {
-                background: #2e7d32 !important;
-                color: white !important;
-            }
-            .count {
-                font-size: 22px;
-                margin: 12px 0 20px 0;
-            }
-        </style>
+    <style>
+    body { font-family: Arial; }
+    table { border-collapse: collapse; margin:auto; }
+    td, th {
+        border:1px solid #999;
+        padding:6px;
+        text-align:center;
+    }
+    th { background:#eee; }
+    .box {
+        width:20px;
+        height:20px;
+        border:1px solid #333;
+        cursor:pointer;
+    }
+    .on { background:green; }
+    </style>
     </head>
     <body>
-        <h2>Attendance Board</h2>
-        <div class="dates" id="dates">
+
+    <h2 style="text-align:center;">TSHRT Attendance Grid</h2>
+
+    <table>
+    <tr>
+        <th>Name</th>
     """
 
     for d in dates:
-        html += f'<div class="date" id="d_{d}" onclick="selectDate(\'{d}\')">{date_label(d)}</div>'
+        html += f"<th>{label(d)}</th>"
+
+    html += "<th>Total</th></tr>"
+
+    for c in clients:
+        cid = c["client_id"]
+        name = c["display_name"]
+
+        html += f"<tr><td>{name}</td>"
+
+        for d in dates:
+            checked = cid in DATA["attendance"].get(d, [])
+            cls = "box on" if checked else "box"
+
+            html += f"""
+            <td>
+            <div class="{cls}" onclick="toggle('{cid}','{d}',this)"></div>
+            </td>
+            """
+
+        total = get_attendance_count(cid)
+        html += f"<td>{total}</td></tr>"
 
     html += """
-        </div>
+    </table>
 
-        <div id="currentDate"></div>
-        <div class="count" id="count"></div>
-        <div id="clients"></div>
+    <script>
+    function toggle(cid,date,el){
+        fetch("/api/toggle",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({client_id:cid,date:date})
+        }).then(()=>{
+            el.classList.toggle("on");
+        });
+    }
+    </script>
 
-        <script>
-            let clients = """ + json.dumps(DATA.get("clients", [])) + """;
-            let currentDate = "";
-
-            function selectDate(dateStr) {
-                currentDate = dateStr;
-
-                document.querySelectorAll(".date").forEach(el => el.classList.remove("active"));
-                let active = document.getElementById("d_" + dateStr);
-                if (active) active.classList.add("active");
-
-                document.getElementById("currentDate").innerHTML = "<h3>" + dateStr + "</h3>";
-                loadAttendance();
-            }
-
-            function loadAttendance() {
-                fetch("/api/attendance/" + currentDate)
-                    .then(r => r.json())
-                    .then(data => {
-                        let present = data.attendance || [];
-                        let html = "";
-                        let count = 0;
-
-                        clients.forEach(c => {
-                            let checked = present.includes(c.client_id);
-                            if (checked) count++;
-
-                            html += `
-                                <div class="client ${checked ? "checked" : ""}" onclick="toggleClient('${c.client_id}')">
-                                    ${c.display_name}
-                                </div>
-                            `;
-                        });
-
-                        document.getElementById("clients").innerHTML = html;
-                        document.getElementById("count").innerText = "Attendance: " + count + " / " + clients.length;
-                    });
-            }
-
-            function toggleClient(clientId) {
-                fetch("/api/checkin", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({
-                        client_id: clientId,
-                        date: currentDate
-                    })
-                }).then(() => loadAttendance());
-            }
-
-            let firstDate = document.querySelector(".date");
-            if (firstDate) {
-                let dateId = firstDate.id.replace("d_", "");
-                selectDate(dateId);
-            }
-        </script>
     </body>
     </html>
     """
+
+    return html
+
+
+# ==============================
+# LEADERBOARD (simple for now)
+# ==============================
+
+@app.route("/board")
+def board():
+    rows = []
+
+    for c in DATA["clients"]:
+        cid = c["client_id"]
+        name = c["display_name"]
+        score = get_attendance_count(cid)
+
+        rows.append((name, score))
+
+    rows.sort(key=lambda x: -x[1])
+
+    html = "<h1 style='text-align:center;'>Leaderboard</h1>"
+
+    for i, r in enumerate(rows, 1):
+        html += f"<div style='text-align:center;font-size:24px;'>#{i} {r[0]} - {r[1]}</div>"
+
     return html
 
 

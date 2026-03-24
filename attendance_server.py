@@ -7,6 +7,7 @@ app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"
 CHALLENGE_START = "2026-03-09"
+CHALLENGE_LENGTH_DAYS = 42
 
 
 # ============================================================
@@ -29,7 +30,6 @@ def load_data():
     data.setdefault("clients", [])
     data.setdefault("attendance", {})
     data.setdefault("challenges", {})
-    data["challenges"].setdefault("base", {})
     data["challenges"].setdefault("current", {})
     data["challenges"].setdefault("history", {})
 
@@ -48,81 +48,95 @@ DATA = load_data()
 # HELPERS
 # ============================================================
 
-def get_client_name(client):
-    return str(client.get("display_name", "")).strip()
+def parse_date(date_str: str):
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except Exception:
+        return None
 
 
-def get_client_id(client):
+def challenge_start_dt():
+    return datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
+
+
+def challenge_end_dt():
+    return challenge_start_dt() + timedelta(days=CHALLENGE_LENGTH_DAYS - 1)
+
+
+def get_client_id(client: dict) -> str:
     return str(client.get("client_id", "")).strip()
 
 
-def challenge_dates():
-    start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(42)]
+def get_client_name(client: dict) -> str:
+    return str(client.get("display_name", "")).strip()
 
 
-def date_label(date_str):
-    try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return dt.strftime("%a %d %b")
-    except Exception:
-        return date_str
+def get_initial_score(client: dict) -> int:
+    """
+    True lifetime base from the client system.
+    Prefers snapshot_score, then lifetime_score, else 0.
+    """
+    for key in ("snapshot_score", "lifetime_score"):
+        value = client.get(key)
+        try:
+            if value is not None and str(value).strip() != "":
+                return int(round(float(value)))
+        except Exception:
+            pass
+    return 0
 
 
 def ensure_client_structures():
+    DATA.setdefault("challenges", {})
+    DATA["challenges"].setdefault("current", {})
+    DATA["challenges"].setdefault("history", {})
+
     for client in DATA.get("clients", []):
         cid = get_client_id(client)
         if cid:
-            DATA["challenges"]["base"].setdefault(cid, 0)
             DATA["challenges"]["current"].setdefault(cid, 0)
             DATA["challenges"]["history"].setdefault(cid, [])
 
 
 def recalc_scores():
     """
-    base:
-        attendance BEFORE challenge start
+    Current challenge score:
+    - only dates inside current challenge window
+    - only Monday and Wednesday count
 
-    current:
-        attendance DURING challenge window,
-        but ONLY Monday (0) and Wednesday (2)
-
-    lifetime:
-        base + sum(history) + current
-        (calculated later in build_rows)
+    Lifetime score:
+    - calculated later as:
+      initial client score + history + current
     """
-    start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    end = start + timedelta(days=41)
+    start = challenge_start_dt()
+    end = challenge_end_dt()
 
-    base_scores = {}
     current_scores = {}
 
     for client in DATA.get("clients", []):
         cid = get_client_id(client)
         if cid:
-            base_scores[cid] = 0
             current_scores[cid] = 0
 
     for date_str, attendees in DATA.get("attendance", {}).items():
-        try:
-            d = datetime.strptime(date_str, "%Y-%m-%d")
-        except Exception:
+        d = parse_date(date_str)
+        if d is None:
             continue
 
         if not isinstance(attendees, list):
             continue
 
+        if not (start <= d <= end):
+            continue
+
+        # Monday = 0, Wednesday = 2
+        if d.weekday() not in [0, 2]:
+            continue
+
         for cid in attendees:
-            if cid not in base_scores:
-                continue
+            if cid in current_scores:
+                current_scores[cid] += 1
 
-            if d < start:
-                base_scores[cid] += 1
-            elif start <= d <= end:
-                if d.weekday() in [0, 2]:
-                    current_scores[cid] += 1
-
-    DATA["challenges"]["base"] = base_scores
     DATA["challenges"]["current"] = current_scores
 
 
@@ -133,29 +147,45 @@ def build_rows():
         cid = get_client_id(client)
         name = get_client_name(client)
 
-        base_score = int(DATA["challenges"].get("base", {}).get(cid, 0))
+        initial_score = get_initial_score(client)
         current_score = int(DATA["challenges"].get("current", {}).get(cid, 0))
-        history_scores = DATA["challenges"].get("history", {}).get(cid, [])
 
+        history_scores = DATA["challenges"].get("history", {}).get(cid, [])
         if not isinstance(history_scores, list):
             history_scores = []
 
-        history_total = sum(int(x) for x in history_scores if isinstance(x, (int, float)))
-        initial_score = int(client.get("snapshot_score", 0))
-        lifetime_total = initial_score + current_score
+        history_total = 0
+        for x in history_scores:
+            try:
+                history_total += int(round(float(x)))
+            except Exception:
+                pass
+
+        lifetime_total = initial_score + history_total + current_score
 
         rows.append({
             "client_id": cid,
             "name": name,
-            "base": base_score,
+            "initial": initial_score,
             "current": current_score,
             "history_total": history_total,
             "lifetime": lifetime_total,
-            "history_list": history_scores,
         })
 
-    rows.sort(key=lambda x: (-x["current"], -x["lifetime"], x["name"].lower()))
+    rows.sort(key=lambda r: (-r["current"], -r["lifetime"], r["name"].lower()))
     return rows
+
+
+def challenge_dates():
+    start = challenge_start_dt()
+    return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(CHALLENGE_LENGTH_DAYS)]
+
+
+def date_label(date_str: str) -> str:
+    d = parse_date(date_str)
+    if d is None:
+        return date_str
+    return d.strftime("%a %d %b")
 
 
 ensure_client_structures()
@@ -173,13 +203,13 @@ def home():
 
 
 # ============================================================
-# SYNC CLIENT ROSTER
+# SYNC CLIENTS
 # ============================================================
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    incoming = request.get_json(silent=True) or {}
-    clients = incoming.get("clients", [])
+    payload = request.get_json(silent=True) or {}
+    clients = payload.get("clients", [])
 
     if not isinstance(clients, list):
         return jsonify({"status": "error", "message": "clients must be a list"}), 400
@@ -202,11 +232,14 @@ def sync_roster():
 
         seen.add(cid)
 
+        # Preserve any score fields sent from local system
         clean_clients.append({
             "client_id": cid,
             "display_name": name,
             "first_name": str(client.get("first_name", "")).strip(),
             "last_name": str(client.get("last_name", "")).strip(),
+            "snapshot_score": client.get("snapshot_score", client.get("lifetime_score", 0)),
+            "lifetime_score": client.get("lifetime_score", client.get("snapshot_score", 0)),
         })
 
     DATA["clients"] = clean_clients
@@ -224,8 +257,8 @@ def sync_roster():
 # ATTENDANCE API
 # ============================================================
 
-@app.route("/api/attendance/<date_str>")
-def get_attendance(date_str):
+@app.route("/api/attendance/<date_str>", methods=["GET"])
+def api_attendance(date_str):
     attendees = DATA.get("attendance", {}).get(date_str, [])
     if not isinstance(attendees, list):
         attendees = []
@@ -237,14 +270,14 @@ def get_attendance(date_str):
 
 
 @app.route("/api/checkin", methods=["POST"])
-def toggle_checkin():
+def api_checkin():
     payload = request.get_json(silent=True) or {}
 
     cid = str(payload.get("client_id", "")).strip()
     date_str = str(payload.get("date", "")).strip()
 
     if not cid or not date_str:
-        return jsonify({"status": "error", "message": "client_id and date required"}), 400
+        return jsonify({"status": "error", "message": "client_id and date are required"}), 400
 
     DATA.setdefault("attendance", {})
     DATA["attendance"].setdefault(date_str, [])
@@ -253,30 +286,34 @@ def toggle_checkin():
 
     if cid in attendees:
         attendees.remove(cid)
-        action = "removed"
+        status = "removed"
     else:
         attendees.append(cid)
-        action = "added"
+        status = "added"
 
     recalc_scores()
     save_data()
 
-    return jsonify({"status": action})
+    return jsonify({"status": status})
+
+
+@app.route("/api/report_data", methods=["GET"])
+def api_report_data():
+    rows = build_rows()
+    return jsonify({
+        "challenge_start": CHALLENGE_START,
+        "challenge_end": challenge_end_dt().strftime("%Y-%m-%d"),
+        "rows": rows,
+        "attendance": DATA.get("attendance", {})
+    })
 
 
 # ============================================================
 # LOCK CHALLENGE
 # ============================================================
 
-@app.route("/lock_challenge")
+@app.route("/lock_challenge", methods=["GET"])
 def lock_challenge():
-    """
-    Moves CURRENT challenge score into HISTORY and resets:
-    - current challenge scores
-    - attendance records
-
-    base stays as historical pre-challenge attendance.
-    """
     ensure_client_structures()
     recalc_scores()
 
@@ -292,69 +329,68 @@ def lock_challenge():
 
 
 # ============================================================
-# LEADERBOARD PAGE
+# LEADERBOARD / BOARD
 # ============================================================
 
-@app.route("/leaderboard")
-def leaderboard():
+def render_board_html(title: str, subtitle: str, top_only: bool = False):
     rows = build_rows()
+    if top_only:
+        rows = rows[:10]
 
-    html = """
+    html = f"""
     <html>
     <head>
-        <title>TSHRT Leaderboard</title>
+        <title>{title}</title>
         <style>
-            body {
-                font-family: Arial, sans-serif;
-                background: #111;
+            body {{
+                background: black;
                 color: white;
+                font-family: Arial, sans-serif;
                 text-align: center;
                 margin: 0;
                 padding: 20px;
-            }
-            .title {
-                font-size: 42px;
-                font-weight: bold;
-                margin-bottom: 10px;
+            }}
+            .title {{
+                font-size: 56px;
+                margin: 20px;
                 color: #FFD700;
-            }
-            .subtitle {
-                font-size: 18px;
-                color: #ccc;
-                margin-bottom: 30px;
-            }
-            .row {
-                width: 820px;
-                margin: 10px auto;
-                padding: 14px 18px;
-                border: 1px solid #444;
-                border-radius: 10px;
-                background: #1e1e1e;
+                font-weight: bold;
+            }}
+            .subtitle {{
                 font-size: 24px;
+                color: #bbb;
+                margin-bottom: 25px;
+            }}
+            .row {{
+                font-size: 30px;
+                margin: 12px auto;
+                width: 900px;
+                padding: 14px 20px;
+                border-bottom: 1px solid #444;
                 text-align: left;
-            }
-            .rank {
+            }}
+            .rank {{
                 display: inline-block;
-                width: 70px;
+                width: 80px;
                 color: #FFD700;
                 font-weight: bold;
-            }
-            .name {
+            }}
+            .name {{
                 display: inline-block;
-                width: 340px;
-            }
-            .points {
+                width: 420px;
+            }}
+            .points {{
                 float: right;
-            }
+            }}
         </style>
     </head>
     <body>
-        <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
-        <div class="subtitle">Current Challenge + Lifetime Progress</div>
+        <div class="title">{title}</div>
+        <div class="subtitle">{subtitle}</div>
     """
 
     if not rows:
-        html += '<div class="row">NO DATA FOUND</div>'
+        html += "<div class='row'>NO DATA FOUND</div>"
     else:
         rank = 1
         for row in rows:
@@ -374,86 +410,21 @@ def leaderboard():
     return html
 
 
-# ============================================================
-# BIG DISPLAY BOARD
-# ============================================================
+@app.route("/leaderboard")
+def leaderboard():
+    return render_board_html("🔥 CHALLENGE LEADERBOARD 🔥", "Current Challenge + Lifetime Progress", top_only=False)
+
 
 @app.route("/board")
 @app.route("/challenge_board")
+@app.route("/coach_checkin")
 def board():
-    rows = build_rows()
+    return render_board_html("🔥 6 WEEK CHALLENGE 🔥", "Challenge Score + Lifetime Score", top_only=True)
 
-    html = """
-    <html>
-    <head>
-        <title>TSHRT Challenge Board</title>
-        <style>
-            body {
-                background: black;
-                color: white;
-                font-family: Arial, sans-serif;
-                text-align: center;
-                margin: 0;
-                padding: 20px;
-            }
-            .title {
-                font-size: 56px;
-                margin: 20px;
-                color: #FFD700;
-                font-weight: bold;
-            }
-            .subtitle {
-                font-size: 24px;
-                color: #bbb;
-                margin-bottom: 25px;
-            }
-            .row {
-                font-size: 30px;
-                margin: 12px auto;
-                width: 900px;
-                padding: 14px 20px;
-                border-bottom: 1px solid #444;
-                text-align: left;
-            }
-            .rank {
-                display: inline-block;
-                width: 80px;
-                color: #FFD700;
-                font-weight: bold;
-            }
-            .name {
-                display: inline-block;
-                width: 420px;
-            }
-            .points {
-                float: right;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="title">🔥 6 WEEK CHALLENGE 🔥</div>
-        <div class="subtitle">Challenge Score + Lifetime Score</div>
-    """
 
-    if not rows:
-        html += '<div class="row">NO DATA FOUND</div>'
-    else:
-        rank = 1
-        for row in rows[:10]:
-            html += f"""
-            <div class="row">
-                <span class="rank">#{rank}</span>
-                <span class="name">{row['name']}</span>
-                <span class="points">C:{int(row['current'])} | L:{int(row['lifetime'])}</span>
-            </div>
-            """
-            rank += 1
-
-    html += """
-    </body>
-    </html>
-    """
-    return html
+@app.route("/coach")
+def coach():
+    return render_board_html("🔥 COACH LEADERBOARD 🔥", "Full Rankings", top_only=False)
 
 
 # ============================================================
@@ -523,8 +494,7 @@ def checkin_page():
     """
 
     for d in dates:
-        label = date_label(d)
-        html += f'<div class="date" id="d_{d}" onclick="selectDate(\'{d}\')">{label}</div>'
+        html += f'<div class="date" id="d_{d}" onclick="selectDate(\'{d}\')">{date_label(d)}</div>'
 
     html += """
         </div>
@@ -545,7 +515,6 @@ def checkin_page():
                 if (active) active.classList.add("active");
 
                 document.getElementById("currentDate").innerHTML = "<h3>" + dateStr + "</h3>";
-
                 loadAttendance();
             }
 

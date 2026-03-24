@@ -5,7 +5,7 @@ import json
 
 app = Flask(__name__)
 
-DATA_FILE = "roster_data.json"
+DATA_FILE = os.path.join(os.getcwd(), "roster_data.json")
 CHALLENGE_START = "2026-03-09"
 DAYS = 42
 
@@ -65,13 +65,28 @@ def get_attendance_count(cid):
 # SYNC CLIENTS
 # ==============================
 
-@app.route("/api/roster/sync", methods=["POST"])
-def sync():
-    payload = request.get_json()
-    DATA["clients"] = payload.get("clients", [])
-    save_data()
-    return jsonify({"status": "ok"})
+@app.route("/api/toggle", methods=["POST"])
+def toggle():
+    global DATA
 
+    # 🔥 ALWAYS LOAD LATEST FILE
+    DATA = load_data()
+
+    cid = request.json["client_id"]
+    date = request.json["date"]
+
+    DATA.setdefault("attendance", {})
+    DATA["attendance"].setdefault(date, [])
+
+    if cid in DATA["attendance"][date]:
+        DATA["attendance"][date].remove(cid)
+    else:
+        DATA["attendance"][date].append(cid)
+
+    # 🔥 FORCE SAVE
+    save_data()
+
+    return jsonify({"status": "ok"})
 
 # ==============================
 # TOGGLE CHECK

@@ -29,6 +29,7 @@ def load_data():
     data.setdefault("clients", [])
     data.setdefault("attendance", {})
     data.setdefault("challenges", {})
+    data["challenges"].setdefault("base", {})
     data["challenges"].setdefault("current", {})
     data["challenges"].setdefault("history", {})
 
@@ -42,6 +43,7 @@ def save_data():
 
 DATA = load_data()
 
+
 # ============================================================
 # HELPERS
 # ============================================================
@@ -52,35 +54,6 @@ def get_client_name(client):
 
 def get_client_id(client):
     return str(client.get("client_id", "")).strip()
-
-
-def build_rows():
-    rows = []
-
-    for client in DATA.get("clients", []):
-        cid = get_client_id(client)
-        name = get_client_name(client)
-
-        current_score = int(DATA["challenges"]["current"].get(cid, 0))
-        history_scores = DATA["challenges"]["history"].get(cid, [])
-
-        if not isinstance(history_scores, list):
-            history_scores = []
-
-        history_total = sum(int(x) for x in history_scores if isinstance(x, (int, float)))
-        lifetime_total = history_total + current_score
-
-        rows.append({
-            "client_id": cid,
-            "name": name,
-            "current": current_score,
-            "history_total": history_total,
-            "lifetime": lifetime_total,
-            "history_list": history_scores,
-        })
-
-    rows.sort(key=lambda x: (-x["current"], -x["lifetime"], x["name"].lower()))
-    return rows
 
 
 def challenge_dates():
@@ -100,10 +73,24 @@ def ensure_client_structures():
     for client in DATA.get("clients", []):
         cid = get_client_id(client)
         if cid:
+            DATA["challenges"]["base"].setdefault(cid, 0)
             DATA["challenges"]["current"].setdefault(cid, 0)
             DATA["challenges"]["history"].setdefault(cid, [])
- 
-def recalc_current_scores():
+
+
+def recalc_scores():
+    """
+    base:
+        attendance BEFORE challenge start
+
+    current:
+        attendance DURING challenge window,
+        but ONLY Monday (0) and Wednesday (2)
+
+    lifetime:
+        base + sum(history) + current
+        (calculated later in build_rows)
+    """
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
     end = start + timedelta(days=41)
 
@@ -111,42 +98,69 @@ def recalc_current_scores():
     current_scores = {}
 
     for client in DATA.get("clients", []):
-        cid = client.get("client_id")
+        cid = get_client_id(client)
         if cid:
             base_scores[cid] = 0
             current_scores[cid] = 0
 
     for date_str, attendees in DATA.get("attendance", {}).items():
-
         try:
             d = datetime.strptime(date_str, "%Y-%m-%d")
-        except:
+        except Exception:
             continue
 
         if not isinstance(attendees, list):
             continue
 
         for cid in attendees:
+            if cid not in base_scores:
+                continue
 
             if d < start:
                 base_scores[cid] += 1
-
             elif start <= d <= end:
                 if d.weekday() in [0, 2]:
                     current_scores[cid] += 1
 
     DATA["challenges"]["base"] = base_scores
     DATA["challenges"]["current"] = current_scores
-# ===== INITIAL CALCULATION ON SERVER START =====
+
+
+def build_rows():
+    rows = []
+
+    for client in DATA.get("clients", []):
+        cid = get_client_id(client)
+        name = get_client_name(client)
+
+        base_score = int(DATA["challenges"].get("base", {}).get(cid, 0))
+        current_score = int(DATA["challenges"].get("current", {}).get(cid, 0))
+        history_scores = DATA["challenges"].get("history", {}).get(cid, [])
+
+        if not isinstance(history_scores, list):
+            history_scores = []
+
+        history_total = sum(int(x) for x in history_scores if isinstance(x, (int, float)))
+        lifetime_total = base_score + history_total + current_score
+
+        rows.append({
+            "client_id": cid,
+            "name": name,
+            "base": base_score,
+            "current": current_score,
+            "history_total": history_total,
+            "lifetime": lifetime_total,
+            "history_list": history_scores,
+        })
+
+    rows.sort(key=lambda x: (-x["current"], -x["lifetime"], x["name"].lower()))
+    return rows
+
+
 ensure_client_structures()
-recalc_current_scores()
+recalc_scores()
 save_data()
 
-  
-# ✅ ADD HERE (AFTER FUNCTION IS DEFINED)
-ensure_client_structures()
-recalc_current_scores()
-save_data()
 
 # ============================================================
 # HOME
@@ -196,7 +210,7 @@ def sync_roster():
 
     DATA["clients"] = clean_clients
     ensure_client_structures()
-    recalc_current_scores()
+    recalc_scores()
     save_data()
 
     return jsonify({
@@ -243,7 +257,7 @@ def toggle_checkin():
         attendees.append(cid)
         action = "added"
 
-    recalc_current_scores()
+    recalc_scores()
     save_data()
 
     return jsonify({"status": action})
@@ -255,8 +269,15 @@ def toggle_checkin():
 
 @app.route("/lock_challenge")
 def lock_challenge():
+    """
+    Moves CURRENT challenge score into HISTORY and resets:
+    - current challenge scores
+    - attendance records
+
+    base stays as historical pre-challenge attendance.
+    """
     ensure_client_structures()
-    recalc_current_scores()
+    recalc_scores()
 
     for cid, score in DATA["challenges"]["current"].items():
         if score > 0:
@@ -302,7 +323,7 @@ def leaderboard():
                 margin-bottom: 30px;
             }
             .row {
-                width: 760px;
+                width: 820px;
                 margin: 10px auto;
                 padding: 14px 18px;
                 border: 1px solid #444;
@@ -319,7 +340,7 @@ def leaderboard():
             }
             .name {
                 display: inline-block;
-                width: 330px;
+                width: 340px;
             }
             .points {
                 float: right;
@@ -340,7 +361,7 @@ def leaderboard():
             <div class="row">
                 <span class="rank">#{rank}</span>
                 <span class="name">{row['name']}</span>
-                <span class="points">C:{row['current']} | L:{row['lifetime']}</span>
+                <span class="points">C:{int(row['current'])} | L:{int(row['lifetime'])}</span>
             </div>
             """
             rank += 1
@@ -357,6 +378,7 @@ def leaderboard():
 # ============================================================
 
 @app.route("/board")
+@app.route("/challenge_board")
 def board():
     rows = build_rows()
 
@@ -421,7 +443,7 @@ def board():
             <div class="row">
                 <span class="rank">#{rank}</span>
                 <span class="name">{row['name']}</span>
-                <span class="points">C:{row['current']} | L:{row['lifetime']}</span>
+                <span class="points">C:{int(row['current'])} | L:{int(row['lifetime'])}</span>
             </div>
             """
             rank += 1
@@ -561,11 +583,11 @@ def checkin_page():
                 }).then(() => loadAttendance());
             }
 
-            let today = new Date().toISOString().split("T")[0];
-            if (!document.getElementById("d_" + today)) {
-                today = document.querySelector(".date") ? document.querySelector(".date").id.replace("d_", "") : "";
+            let firstDate = document.querySelector(".date");
+            if (firstDate) {
+                let dateId = firstDate.id.replace("d_", "");
+                selectDate(dateId);
             }
-            if (today) selectDate(today);
         </script>
     </body>
     </html>

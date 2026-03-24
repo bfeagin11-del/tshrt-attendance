@@ -158,14 +158,19 @@ def grid():
 
     <script>
     function toggle(cid,date,el){
-        fetch("/api/toggle",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({client_id:cid,date:date})
-        }).then(()=>{
-            el.classList.toggle("on");
-        });
-    }
+    fetch("/api/toggle",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({client_id:cid,date:date})
+    }).then(()=>{
+        el.classList.toggle("on");
+
+        // update total
+        let row = el.parentElement.parentElement;
+        let boxes = row.querySelectorAll(".box.on");
+        row.lastElementChild.innerText = boxes.length;
+    });
+}
     </script>
 
     </body>

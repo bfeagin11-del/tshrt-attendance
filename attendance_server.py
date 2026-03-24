@@ -191,17 +191,63 @@ def board():
     for c in DATA["clients"]:
         cid = c["client_id"]
         name = c["display_name"]
-        score = get_attendance_count(cid)
 
-        rows.append((name, score))
+        attendance = get_attendance_count(cid)
 
-    rows.sort(key=lambda x: -x[1])
+        rows.append({
+            "name": name,
+            "attendance": attendance,
+            "points": attendance  # 1 per check
+        })
 
-    html = "<h1 style='text-align:center;'>Leaderboard</h1>"
+    rows.sort(key=lambda x: -x["points"])
+
+    html = """
+    <html>
+    <head>
+    <style>
+    body {
+        background:black;
+        color:white;
+        font-family:Arial;
+        text-align:center;
+    }
+    .title {
+        font-size:48px;
+        margin:20px;
+        color:#FFD700;
+    }
+    .row {
+        font-size:28px;
+        padding:12px;
+        margin:6px auto;
+        width:600px;
+        border-bottom:1px solid #444;
+    }
+    .rank {
+        color:#FFD700;
+        font-weight:bold;
+    }
+    .points {
+        float:right;
+    }
+    </style>
+    </head>
+    <body>
+
+    <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
+    """
 
     for i, r in enumerate(rows, 1):
-        html += f"<div style='text-align:center;font-size:24px;'>#{i} {r[0]} - {r[1]}</div>"
+        html += f"""
+        <div class="row">
+            <span class="rank">#{i}</span>
+            {r['name']}
+            <span class="points">{r['points']} pts</span>
+        </div>
+        """
 
+    html += "</body></html>"
     return html
 
 

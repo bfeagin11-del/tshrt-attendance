@@ -39,7 +39,7 @@ def get_dates():
 
     for i in range(DAYS):
         d = start + timedelta(days=i)
-        if d.weekday() in [0, 2]:  # Mon/Wed
+        if d.weekday() in [0, 2]:  # Mon/Wed only
             dates.append(d.strftime("%Y-%m-%d"))
 
     return dates
@@ -50,28 +50,11 @@ def label(d):
 
 
 def get_attendance_count(cid):
-    name = None
-
-    # find client name
-    for c in DATA["clients"]:
-        if c["client_id"] == cid:
-            name = c["display_name"]
-            break
-
-    if not name:
-        return 0
-
     count = 0
-
-    for date in DATA["attendance"]:
-        for stored_id in DATA["attendance"][date]:
-
-            # find stored client name
-            for c in DATA["clients"]:
-                if c["client_id"] == stored_id:
-                    if c["display_name"] == name:
-                        count += 1
-
+    for date in DATA.get("attendance", {}):
+        attendees = DATA["attendance"].get(date, [])
+        if cid in attendees:
+            count += 1
     return count
 
 
@@ -113,6 +96,9 @@ def toggle():
 
 @app.route("/checkin")
 def grid():
+
+    global DATA
+    DATA = load_data()
 
     dates = get_dates()
     clients = DATA["clients"]
@@ -164,7 +150,7 @@ def grid():
 
             html += f"""
             <td>
-            <div class="{cls}" onclick="toggle('{cid}','{d}',this)"></div>
+            <div class="{cls}" onclick="toggleBox('{cid}','{d}',this)"></div>
             </td>
             """
 
@@ -175,20 +161,19 @@ def grid():
     </table>
 
     <script>
-    function toggle(cid,date,el){
-    fetch("/api/toggle",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({client_id:cid,date:date})
-    }).then(()=>{
-        el.classList.toggle("on");
+    function toggleBox(cid,date,el){
+        fetch("/api/toggle",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({client_id:cid,date:date})
+        }).then(()=>{
+            el.classList.toggle("on");
 
-        // update total
-        let row = el.parentElement.parentElement;
-        let boxes = row.querySelectorAll(".box.on");
-        row.lastElementChild.innerText = boxes.length;
-    });
-}
+            let row = el.parentElement.parentElement;
+            let boxes = row.querySelectorAll(".box.on");
+            row.lastElementChild.innerText = boxes.length;
+        });
+    }
     </script>
 
     </body>
@@ -199,11 +184,15 @@ def grid():
 
 
 # ==============================
-# LEADERBOARD (simple for now)
+# LEADERBOARD (FIXED)
 # ==============================
 
 @app.route("/board")
 def board():
+
+    global DATA
+    DATA = load_data()  # 🔥 THIS FIXES YOUR PROBLEM
+
     rows = []
 
     for c in DATA["clients"]:
@@ -214,8 +203,7 @@ def board():
 
         rows.append({
             "name": name,
-            "attendance": attendance,
-            "points": attendance  # 1 per check
+            "points": attendance
         })
 
     rows.sort(key=lambda x: -x["points"])
@@ -268,6 +256,10 @@ def board():
     html += "</body></html>"
     return html
 
+
+# ==============================
+# START
+# ==============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

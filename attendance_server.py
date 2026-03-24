@@ -50,10 +50,28 @@ def label(d):
 
 
 def get_attendance_count(cid):
+    name = None
+
+    # find client name
+    for c in DATA["clients"]:
+        if c["client_id"] == cid:
+            name = c["display_name"]
+            break
+
+    if not name:
+        return 0
+
     count = 0
-    for d in DATA["attendance"]:
-        if cid in DATA["attendance"][d]:
-            count += 1
+
+    for date in DATA["attendance"]:
+        for stored_id in DATA["attendance"][date]:
+
+            # find stored client name
+            for c in DATA["clients"]:
+                if c["client_id"] == stored_id:
+                    if c["display_name"] == name:
+                        count += 1
+
     return count
 
 

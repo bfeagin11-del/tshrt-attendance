@@ -5,14 +5,13 @@ import json
 
 app = Flask(__name__)
 
-DATA_FILE = os.path.join(os.getcwd(), "roster_data.json")
+DATA_FILE = "roster_data.json"
 CHALLENGE_START = "2026-03-09"
-DAYS = 42
 
 
-# ==============================
+# =========================
 # LOAD / SAVE
-# ==============================
+# =========================
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -21,109 +20,109 @@ def load_data():
     return {"clients": [], "attendance": {}}
 
 
-def save_data():
+def save_data(data):
     with open(DATA_FILE, "w") as f:
-        json.dump(DATA, f, indent=2)
+        json.dump(data, f, indent=2)
 
 
-DATA = load_data()
-
-
-# ==============================
+# =========================
 # HELPERS
-# ==============================
+# =========================
 
-def get_dates():
+def challenge_dates():
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    return [
-        (start + timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(DAYS)
-        if (start + timedelta(days=i)).weekday() in [0, 2]
-    ]
+    dates = []
+
+    for i in range(42):
+        d = start + timedelta(days=i)
+        if d.weekday() in [0, 2]:  # Mon/Wed
+            dates.append(d.strftime("%Y-%m-%d"))
+
+    return dates
 
 
 def label(d):
     return datetime.strptime(d, "%Y-%m-%d").strftime("%a %d %b")
 
 
-def get_attendance_count(cid):
-    DATA_LOCAL = load_data()
-    count = 0
-    for date in DATA_LOCAL.get("attendance", {}):
-        if cid in DATA_LOCAL["attendance"][date]:
-            count += 1
-    return count
+def attendance_count(data, cid):
+    total = 0
+    for d in data.get("attendance", {}):
+        if cid in data["attendance"][d]:
+            total += 1
+    return total
 
 
-# ==============================
-# SAFE SYNC (FIXED)
-# ==============================
+def last_name(name):
+    parts = name.split()
+    return parts[-1].lower() if parts else ""
+
+
+# =========================
+# SYNC (SAFE)
+# =========================
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync():
-    global DATA
+    data = load_data()
     incoming = request.get_json()
 
-    DATA = load_data()  # 🔥 load existing
-
-    existing_clients = {c["client_id"]: c for c in DATA.get("clients", [])}
+    existing = {c["client_id"]: c for c in data.get("clients", [])}
 
     for c in incoming.get("clients", []):
-        cid = c.get("client_id")
-        if not cid:
-            continue
+        cid = c["client_id"]
 
-        existing_clients[cid] = {
+        existing[cid] = {
             "client_id": cid,
             "display_name": c.get("display_name", ""),
             "snapshot_score": c.get("snapshot_score", 0),
             "baseline_score": c.get("baseline_score", 0),
         }
 
-    DATA["clients"] = list(existing_clients.values())
+    data["clients"] = list(existing.values())
+    save_data(data)
 
-    save_data()
-
-    return jsonify({"status": "success", "count": len(DATA["clients"])})
+    return jsonify({"status": "ok"})
 
 
-# ==============================
-# TOGGLE ATTENDANCE
-# ==============================
+# =========================
+# TOGGLE
+# =========================
 
 @app.route("/api/toggle", methods=["POST"])
 def toggle():
-    global DATA
-    DATA = load_data()
+    data = load_data()
 
     cid = request.json["client_id"]
     date = request.json["date"]
 
-    DATA.setdefault("attendance", {})
-    DATA["attendance"].setdefault(date, [])
+    data.setdefault("attendance", {})
+    data["attendance"].setdefault(date, [])
 
-    if cid in DATA["attendance"][date]:
-        DATA["attendance"][date].remove(cid)
+    if cid in data["attendance"][date]:
+        data["attendance"][date].remove(cid)
     else:
-        DATA["attendance"][date].append(cid)
+        data["attendance"][date].append(cid)
 
-    save_data()
+    save_data(data)
     return jsonify({"status": "ok"})
 
 
-# ==============================
-# GRID
-# ==============================
+# =========================
+# CHECK-IN GRID (FIXED)
+# =========================
 
 @app.route("/checkin")
-def grid():
-    global DATA
-    DATA = load_data()
+def checkin():
+    data = load_data()
+    dates = challenge_dates()
 
-    dates = get_dates()
-    clients = DATA["clients"]
+    clients = sorted(
+        data["clients"],
+        key=lambda x: last_name(x["display_name"])
+    )
 
-    html = "<table border=1><tr><th>Name</th>"
+    html = "<h2>Attendance</h2><table border=1><tr><th>Name</th>"
 
     for d in dates:
         html += f"<th>{label(d)}</th>"
@@ -137,21 +136,20 @@ def grid():
         html += f"<tr><td>{name}</td>"
 
         for d in dates:
-            checked = cid in DATA["attendance"].get(d, [])
-            cls = "background:green" if checked else ""
+            present = cid in data.get("attendance", {}).get(d, [])
+            color = "background:green" if present else ""
 
             html += f"""
-            <td onclick="toggle('{cid}','{d}',this)" style="cursor:pointer;{cls}">✔</td>
+            <td onclick="toggle('{cid}','{d}',this)" style="cursor:pointer;{color}"></td>
             """
 
-        total = get_attendance_count(cid)
+        total = attendance_count(data, cid)
         html += f"<td>{total}</td></tr>"
 
     html += """
     </table>
-
     <script>
-    function toggle(cid,date,el){
+    function toggle(cid,date){
         fetch("/api/toggle",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
@@ -164,38 +162,41 @@ def grid():
     return html
 
 
-# ==============================
-# LEADERBOARD (FINAL)
-# ==============================
+# =========================
+# LEADERBOARD (FIXED)
+# =========================
 
 @app.route("/board")
 def board():
-    DATA_LOCAL = load_data()
+    data = load_data()
 
     rows = []
 
-    for c in DATA_LOCAL.get("clients", []):
+    for c in data["clients"]:
         cid = c["client_id"]
         name = c["display_name"]
 
-        attendance = get_attendance_count(cid)
-        score = c.get("snapshot_score", 0)
+        attendance = attendance_count(data, cid)
+        score = int(c.get("snapshot_score", 0))
 
         total = score + attendance
 
-        rows.append((name, total))
+        rows.append({
+            "name": name,
+            "total": total
+        })
 
-    rows.sort(key=lambda x: -x[1])
+    rows.sort(key=lambda x: -x["total"])
 
-    html = "<h1>Leaderboard</h1>"
+    html = "<h1>🔥 CHALLENGE LEADERBOARD 🔥</h1>"
 
     for i, r in enumerate(rows, 1):
-        html += f"<div>#{i} {r[0]} - {r[1]}</div>"
+        html += f"<div>#{i} {r['name']} — {r['total']} pts</div>"
 
     return html
 
 
-# ==============================
+# =========================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

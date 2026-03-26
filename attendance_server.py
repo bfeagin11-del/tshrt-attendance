@@ -87,20 +87,43 @@ def sync_roster():
     data = load_data()
     incoming = request.get_json(silent=True) or {}
 
+    # Build existing client map
     existing = {c["client_id"]: c for c in data.get("clients", [])}
 
     for c in incoming.get("clients", []):
+
         cid = str(c.get("client_id", "")).strip()
         if not cid:
             continue
 
-        existing[cid] = {
+        # Get existing client OR create new one
+        existing_client = existing.get(cid, {
             "client_id": cid,
-            "display_name": str(c.get("display_name", "")).strip(),
-            "snapshot_score": safe_int(c.get("snapshot_score", 0)),
-            "baseline_score": safe_int(c.get("baseline_score", 0)),
-        }
+            "display_name": "",
+            "baseline_score": 0,
+            "snapshot_score": 0,
+            "attendance_count": 0
+        })
 
+        # Update name safely
+        existing_client["display_name"] = str(
+            c.get("display_name", existing_client.get("display_name", ""))
+        ).strip()
+
+        # 🔥 ONLY update scores if present (prevents wipe/reset)
+        if "baseline_score" in c:
+            existing_client["baseline_score"] = safe_int(c.get("baseline_score", 0))
+
+        if "snapshot_score" in c:
+            existing_client["snapshot_score"] = safe_int(c.get("snapshot_score", 0))
+
+        # Preserve attendance
+        existing_client["attendance_count"] = existing_client.get("attendance_count", 0)
+
+        # Save back
+        existing[cid] = existing_client
+
+    # Save full updated roster
     data["clients"] = list(existing.values())
     save_data(data)
 

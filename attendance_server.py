@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
-import os
-import json
+import os, json
 
 app = Flask(__name__)
 
@@ -9,9 +8,7 @@ DATA_FILE = "roster_data.json"
 CHALLENGE_START = "2026-03-09"
 
 
-# =========================
-# LOAD / SAVE
-# =========================
+# ================= LOAD / SAVE =================
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -25,9 +22,7 @@ def save_data(data):
         json.dump(data, f, indent=2)
 
 
-# =========================
-# HELPERS
-# =========================
+# ================= HELPERS =================
 
 def challenge_dates():
     start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
@@ -35,7 +30,7 @@ def challenge_dates():
 
     for i in range(42):
         d = start + timedelta(days=i)
-        if d.weekday() in [0, 2]:  # Mon/Wed
+        if d.weekday() in [0, 2]:
             dates.append(d.strftime("%Y-%m-%d"))
 
     return dates
@@ -46,21 +41,13 @@ def label(d):
 
 
 def attendance_count(data, cid):
-    total = 0
-    for d in data.get("attendance", {}):
-        if cid in data["attendance"][d]:
-            total += 1
-    return total
+    return sum(
+        1 for d in data.get("attendance", {})
+        if cid in data["attendance"].get(d, [])
+    )
 
 
-def last_name(name):
-    parts = name.split()
-    return parts[-1].lower() if parts else ""
-
-
-# =========================
-# SYNC (SAFE)
-# =========================
+# ================= SYNC =================
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync():
@@ -71,12 +58,10 @@ def sync():
 
     for c in incoming.get("clients", []):
         cid = c["client_id"]
-
         existing[cid] = {
             "client_id": cid,
             "display_name": c.get("display_name", ""),
-            "snapshot_score": c.get("snapshot_score", 0),
-            "baseline_score": c.get("baseline_score", 0),
+            "snapshot_score": c.get("snapshot_score", 0)
         }
 
     data["clients"] = list(existing.values())
@@ -85,9 +70,7 @@ def sync():
     return jsonify({"status": "ok"})
 
 
-# =========================
-# TOGGLE
-# =========================
+# ================= TOGGLE =================
 
 @app.route("/api/toggle", methods=["POST"])
 def toggle():
@@ -108,19 +91,14 @@ def toggle():
     return jsonify({"status": "ok"})
 
 
-# =========================
-# CHECK-IN GRID (FIXED)
-# =========================
+# ================= CHECKIN =================
 
 @app.route("/checkin")
 def checkin():
     data = load_data()
     dates = challenge_dates()
 
-    clients = sorted(
-        data["clients"],
-        key=lambda x: last_name(x["display_name"])
-    )
+    clients = sorted(data["clients"], key=lambda x: x["display_name"])
 
     html = "<h2>Attendance</h2><table border=1><tr><th>Name</th>"
 
@@ -139,9 +117,7 @@ def checkin():
             present = cid in data.get("attendance", {}).get(d, [])
             color = "background:green" if present else ""
 
-            html += f"""
-            <td onclick="toggle('{cid}','{d}',this)" style="cursor:pointer;{color}"></td>
-            """
+            html += f"<td onclick=\"toggle('{cid}','{d}')\" style=\"cursor:pointer;{color}\"></td>"
 
         total = attendance_count(data, cid)
         html += f"<td>{total}</td></tr>"
@@ -162,9 +138,7 @@ def checkin():
     return html
 
 
-# =========================
-# LEADERBOARD (FIXED)
-# =========================
+# ================= BOARD (YOUR STYLE + FIXED) =================
 
 @app.route("/board")
 def board():
@@ -181,10 +155,7 @@ def board():
 
         total = score + attendance
 
-        rows.append({
-            "name": name,
-            "total": total
-        })
+        rows.append({"name": name, "total": total})
 
     rows.sort(key=lambda x: -x["total"])
 
@@ -204,12 +175,6 @@ def board():
         color:#FFD700;
         margin:20px;
         font-weight:bold;
-    }
-
-    .subtitle {
-        font-size:22px;
-        color:#ccc;
-        margin-bottom:30px;
     }
 
     .row {
@@ -240,21 +205,24 @@ def board():
     </head>
 
     <body>
-
     <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
-    <div class="subtitle">Challenge Score + Attendance</div>
     """
 
-    rank = 1
-    for r in rows:
+    for i, r in enumerate(rows, 1):
         html += f"""
         <div class="row">
-            <span class="rank">#{rank}</span>
+            <span class="rank">#{i}</span>
             <span class="name">{r['name']}</span>
             <span class="points">{r['total']} pts</span>
         </div>
         """
-        rank += 1
 
     html += "</body></html>"
     return html
+
+
+# ================= RUN =================
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

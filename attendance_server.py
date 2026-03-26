@@ -188,16 +188,73 @@ def board():
 
     rows.sort(key=lambda x: -x["total"])
 
-    html = "<h1>🔥 CHALLENGE LEADERBOARD 🔥</h1>"
+    html = """
+    <html>
+    <head>
+    <style>
+    body {
+        background:black;
+        color:white;
+        font-family:Arial;
+        text-align:center;
+    }
 
-    for i, r in enumerate(rows, 1):
-        html += f"<div>#{i} {r['name']} — {r['total']} pts</div>"
+    .title {
+        font-size:56px;
+        color:#FFD700;
+        margin:20px;
+        font-weight:bold;
+    }
 
+    .subtitle {
+        font-size:22px;
+        color:#ccc;
+        margin-bottom:30px;
+    }
+
+    .row {
+        font-size:30px;
+        width:900px;
+        margin:12px auto;
+        padding:12px;
+        border-bottom:1px solid #444;
+        text-align:left;
+    }
+
+    .rank {
+        display:inline-block;
+        width:80px;
+        color:#FFD700;
+        font-weight:bold;
+    }
+
+    .name {
+        display:inline-block;
+        width:450px;
+    }
+
+    .points {
+        float:right;
+    }
+    </style>
+    </head>
+
+    <body>
+
+    <div class="title">🔥 CHALLENGE LEADERBOARD 🔥</div>
+    <div class="subtitle">Challenge Score + Attendance</div>
+    """
+
+    rank = 1
+    for r in rows:
+        html += f"""
+        <div class="row">
+            <span class="rank">#{rank}</span>
+            <span class="name">{r['name']}</span>
+            <span class="points">{r['total']} pts</span>
+        </div>
+        """
+        rank += 1
+
+    html += "</body></html>"
     return html
-
-
-# =========================
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)

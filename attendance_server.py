@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 import os
 import json
-
+print("🔥🔥🔥 NEW VERSION LOADED 🔥🔥🔥")
 app = Flask(__name__)
 
 DATA_FILE = "roster_data.json"

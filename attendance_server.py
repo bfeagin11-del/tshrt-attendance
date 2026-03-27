@@ -172,8 +172,8 @@ def board():
     rows = []
     for c in data.get("clients", []):
         cid = c["client_id"]
-        attendance = attendance_count(data, cid)
 
+        attendance = attendance_count(data, cid)
         snapshot = safe_int(c.get("snapshot_score", 0))
         baseline = safe_int(c.get("baseline_score", 0))
 
@@ -188,9 +188,48 @@ def board():
 
     rows.sort(key=lambda r: -r["current"])
 
-    html = "<h1>Leaderboard</h1>"
+    html = """
+    <html>
+    <head>
+        <style>
+            body {
+                background-color: black;
+                color: white;
+                font-family: Arial;
+                text-align: center;
+            }
+            h1 {
+                color: gold;
+                font-size: 48px;
+                margin-top: 30px;
+            }
+            .row {
+                font-size: 26px;
+                margin: 10px auto;
+                width: 60%;
+                padding: 10px;
+                border-bottom: 1px solid gold;
+            }
+            .rank {
+                color: gold;
+                font-weight: bold;
+                margin-right: 15px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>🔥 CHALLENGE LEADERBOARD 🔥</h1>
+    """
+
     for i, r in enumerate(rows, 1):
-        html += f"<div>#{i} {r['name']} | C:{r['current']} | L:{r['lifetime']}</div>"
+        html += f"""
+        <div class="row">
+            <span class="rank">#{i}</span> {r['name']} 
+            &nbsp;&nbsp;&nbsp; C:{r['current']} | L:{r['lifetime']}
+        </div>
+        """
+
+    html += "</body></html>"
 
     return html
 

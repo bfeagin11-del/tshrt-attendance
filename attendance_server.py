@@ -18,9 +18,14 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict):
+                    data.setdefault("clients", [])
+                    data.setdefault("attendance", {})
+                    return data
         except Exception:
             pass
+
     return {
         "clients": [],
         "attendance": {}
@@ -82,54 +87,78 @@ def home():
     return "TSHRT Attendance Server Running"
 
 
+@app.route("/debug/roster", methods=["GET"])
+def debug_roster():
+    data = load_data()
+    return jsonify(data)
+
+
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     data = load_data()
     incoming = request.get_json(silent=True) or {}
 
-    # Build existing client map
-    existing = {c["client_id"]: c for c in data.get("clients", [])}
+    existing = {}
+    for c in data.get("clients", []):
+        cid = str(c.get("client_id", "")).strip()
+        if cid:
+            existing[cid] = c
 
     for c in incoming.get("clients", []):
-
         cid = str(c.get("client_id", "")).strip()
         if not cid:
             continue
 
-        # Get existing client OR create new one
         existing_client = existing.get(cid, {
             "client_id": cid,
             "display_name": "",
+            "first_name": "",
+            "last_name": "",
             "baseline_score": 0,
             "snapshot_score": 0,
             "attendance_count": 0
         })
 
-        # Update name safely
+        existing_client["client_id"] = cid
         existing_client["display_name"] = str(
             c.get("display_name", existing_client.get("display_name", ""))
         ).strip()
 
-        # 🔥 ONLY update scores if present (prevents wipe/reset)
+        existing_client["first_name"] = str(
+            c.get("first_name", existing_client.get("first_name", ""))
+        ).strip()
+
+        existing_client["last_name"] = str(
+            c.get("last_name", existing_client.get("last_name", ""))
+        ).strip()
+
         if "baseline_score" in c:
             existing_client["baseline_score"] = safe_int(c.get("baseline_score", 0))
 
         if "snapshot_score" in c:
             existing_client["snapshot_score"] = safe_int(c.get("snapshot_score", 0))
 
-        # Preserve attendance
-        existing_client["attendance_count"] = existing_client.get("attendance_count", 0)
+        if "attendance_count" not in existing_client:
+            existing_client["attendance_count"] = 0
 
-        # Save back
         existing[cid] = existing_client
 
-    # Save full updated roster
     data["clients"] = list(existing.values())
     save_data(data)
 
+    preview = []
+    for client in data["clients"][:10]:
+        preview.append({
+            "client_id": client.get("client_id", ""),
+            "display_name": client.get("display_name", ""),
+            "baseline_score": safe_int(client.get("baseline_score", 0)),
+            "snapshot_score": safe_int(client.get("snapshot_score", 0))
+        })
+
     return jsonify({
         "status": "success",
-        "count": len(data["clients"])
+        "count": len(data["clients"]),
+        "preview": preview
     })
 
 
@@ -234,9 +263,7 @@ def checkin():
             present = cid in data.get("attendance", {}).get(d, [])
             cls = "box on" if present else "box"
             mark = "✓" if present else ""
-            html += (
-                f"<td class='{cls}' onclick=\"toggleBox('{cid}','{d}', this)\">{mark}</td>"
-            )
+            html += f"<td class='{cls}' onclick=\"toggleBox('{cid}','{d}', this)\">{mark}</td>"
 
         total = attendance_count(data, cid)
         html += f"<td class='total'>{total}</td></tr>"
@@ -291,7 +318,9 @@ def board():
             "name": name,
             "current_total": current_total,
             "lifetime_total": lifetime_total,
-            "attendance": attendance
+            "attendance": attendance,
+            "baseline_score": baseline_score,
+            "snapshot_score": snapshot_score
         })
 
     rows.sort(key=lambda r: (-r["current_total"], r["name"].lower()))
@@ -380,7 +409,9 @@ def leaderboard():
             "name": name,
             "current_total": current_total,
             "lifetime_total": lifetime_total,
-            "attendance": attendance
+            "attendance": attendance,
+            "baseline_score": baseline_score,
+            "snapshot_score": snapshot_score
         })
 
     rows.sort(key=lambda r: (-r["lifetime_total"], r["name"].lower()))

@@ -50,10 +50,6 @@ def get_dates():
     return dates
 
 
-def label(date_str):
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%a %d %b")
-
-
 def attendance_count(data, cid):
     total = 0
     for date_str, attendees in data.get("attendance", {}).items():
@@ -69,12 +65,6 @@ def safe_int(value, default=0):
         return int(round(float(value)))
     except Exception:
         return default
-
-
-def sort_last_name(client):
-    name = str(client.get("display_name", "")).strip()
-    parts = name.split()
-    return (parts[-1].lower() if parts else "", name.lower())
 
 
 # ==============================
@@ -121,8 +111,7 @@ def sync_roster():
             "client_id": cid,
             "display_name": "",
             "baseline_score": 0,
-            "snapshot_score": 0,
-            "attendance_count": 0
+            "snapshot_score": 0
         })
 
         existing_client["display_name"] = str(
@@ -153,7 +142,7 @@ def toggle():
     payload = request.get_json(silent=True) or {}
 
     cid = str(payload.get("client_id", "")).strip()
-    date_str = str(payload.get("date", "")).strip()
+    date_str = datetime.now().strftime("%Y-%m-%d")
 
     data.setdefault("attendance", {})
     data["attendance"].setdefault(date_str, [])
@@ -168,7 +157,59 @@ def toggle():
 
 
 # ==============================
-# MAIN BOARD (UNCHANGED)
+# 🔥 CHECK-IN PAGE (FIXES OPTION 7)
+# ==============================
+
+@app.route("/checkin")
+def checkin():
+    data = load_data()
+
+    html = """
+    <html>
+    <head>
+        <style>
+            body { background:black; color:white; text-align:center; font-family:Arial; }
+            h1 { color:gold; }
+            button {
+                padding:12px;
+                margin:6px;
+                font-size:18px;
+                background:gold;
+                border:none;
+                cursor:pointer;
+                width:250px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>🔥 CLIENT CHECK-IN 🔥</h1>
+    """
+
+    for c in data.get("clients", []):
+        html += f"""
+        <div>
+            <button onclick="checkin('{c['client_id']}')">{c['display_name']}</button>
+        </div>
+        """
+
+    html += """
+    <script>
+    function checkin(cid){
+        fetch('/api/toggle', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ client_id: cid })
+        }).then(()=>location.reload());
+    }
+    </script>
+    </body></html>
+    """
+
+    return html
+
+
+# ==============================
+# 🔥 DISPLAY BOARD (OPTION 9)
 # ==============================
 
 @app.route("/board")
@@ -186,22 +227,17 @@ def board():
         current = snapshot + attendance
         lifetime = baseline + snapshot + attendance
 
-        rows.append({
-            "name": c.get("display_name", ""),
-            "current": current,
-            "lifetime": lifetime
-        })
+        rows.append((c.get("display_name", ""), current, lifetime))
 
-    rows.sort(key=lambda r: -r["current"])
+    rows.sort(key=lambda r: -r[1])
 
     html = """
     <html>
     <head>
         <style>
             body { background:black; color:white; text-align:center; font-family:Arial; }
-            h1 { color:gold; font-size:48px; margin-top:30px; }
-            .row { font-size:26px; margin:10px auto; width:60%; padding:10px; border-bottom:1px solid gold; }
-            .rank { color:gold; font-weight:bold; margin-right:15px; }
+            h1 { color:gold; font-size:48px; }
+            .row { font-size:26px; margin:10px; border-bottom:1px solid gold; padding:10px; }
         </style>
     </head>
     <body>
@@ -209,14 +245,14 @@ def board():
     """
 
     for i, r in enumerate(rows, 1):
-        html += f'<div class="row"><span class="rank">#{i}</span> {r["name"]} &nbsp;&nbsp;&nbsp; C:{r["current"]} | L:{r["lifetime"]}</div>'
+        html += f'<div class="row">#{i} {r[0]} | C:{r[1]} | L:{r[2]}</div>'
 
     html += "</body></html>"
     return html
 
 
 # ==============================
-# 🔥 NEW LEADERBOARD ROUTE (THIS WAS MISSING)
+# 🔥 LEADERBOARD (OPTION 8 FIX)
 # ==============================
 
 @app.route("/leaderboard")

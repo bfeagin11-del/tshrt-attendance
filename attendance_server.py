@@ -86,20 +86,21 @@ def home():
     return "TSHRT Attendance Server Running"
 
 
-# 🔥 TEST ROUTE (THIS WAS MISSING)
 @app.route("/debug/test")
 def debug_test():
     return "DEBUG ROUTE ACTIVE"
 
 
-# 🔥 ROSTER VIEW
 @app.route("/debug/roster")
 def debug_roster():
     data = load_data()
     return jsonify(data)
 
 
-# 🔥 SYNC ROUTE (FIXED)
+# ==============================
+# SYNC
+# ==============================
+
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     data = load_data()
@@ -134,8 +135,6 @@ def sync_roster():
         if "snapshot_score" in c:
             existing_client["snapshot_score"] = safe_int(c.get("snapshot_score", 0))
 
-        existing_client["attendance_count"] = existing_client.get("attendance_count", 0)
-
         existing[cid] = existing_client
 
     data["clients"] = list(existing.values())
@@ -143,6 +142,10 @@ def sync_roster():
 
     return jsonify({"status": "success", "count": len(data["clients"])})
 
+
+# ==============================
+# ATTENDANCE
+# ==============================
 
 @app.route("/api/toggle", methods=["POST"])
 def toggle():
@@ -164,7 +167,10 @@ def toggle():
     return jsonify({"status": "ok"})
 
 
-# 🔥 LEADERBOARD (CONFIRMED CORRECT)
+# ==============================
+# MAIN BOARD (UNCHANGED)
+# ==============================
+
 @app.route("/board")
 def board():
     data = load_data()
@@ -192,29 +198,10 @@ def board():
     <html>
     <head>
         <style>
-            body {
-                background-color: black;
-                color: white;
-                font-family: Arial;
-                text-align: center;
-            }
-            h1 {
-                color: gold;
-                font-size: 48px;
-                margin-top: 30px;
-            }
-            .row {
-                font-size: 26px;
-                margin: 10px auto;
-                width: 60%;
-                padding: 10px;
-                border-bottom: 1px solid gold;
-            }
-            .rank {
-                color: gold;
-                font-weight: bold;
-                margin-right: 15px;
-            }
+            body { background:black; color:white; text-align:center; font-family:Arial; }
+            h1 { color:gold; font-size:48px; margin-top:30px; }
+            .row { font-size:26px; margin:10px auto; width:60%; padding:10px; border-bottom:1px solid gold; }
+            .rank { color:gold; font-weight:bold; margin-right:15px; }
         </style>
     </head>
     <body>
@@ -222,16 +209,19 @@ def board():
     """
 
     for i, r in enumerate(rows, 1):
-        html += f"""
-        <div class="row">
-            <span class="rank">#{i}</span> {r['name']} 
-            &nbsp;&nbsp;&nbsp; C:{r['current']} | L:{r['lifetime']}
-        </div>
-        """
+        html += f'<div class="row"><span class="rank">#{i}</span> {r["name"]} &nbsp;&nbsp;&nbsp; C:{r["current"]} | L:{r["lifetime"]}</div>'
 
     html += "</body></html>"
-
     return html
+
+
+# ==============================
+# 🔥 NEW LEADERBOARD ROUTE (THIS WAS MISSING)
+# ==============================
+
+@app.route("/leaderboard")
+def leaderboard():
+    return board()
 
 
 # ==============================

@@ -96,40 +96,36 @@ def sync_roster():
     data = load_data()
     incoming = request.get_json(silent=True) or {}
 
-    existing = {}
-    for c in data.get("clients", []):
-        cid = str(c.get("client_id", "")).strip()
-        if cid:
-            existing[cid] = c
+    new_clients = []
 
     for c in incoming.get("clients", []):
-        cid = str(c.get("client_id", "")).strip()
-        if not cid:
+
+        name = str(c.get("name", "")).strip()
+        if not name:
             continue
 
-        existing_client = existing.get(cid, {
-            "client_id": cid,
-            "display_name": "",
-            "baseline_score": 0,
-            "snapshot_score": 0
+        # 🔥 CREATE ID FROM NAME
+        client_id = name.replace(" ", "_").lower()
+
+        snapshot = safe_int(c.get("snapshot", 0))
+        lifetime = safe_int(c.get("lifetime", 0))
+
+        new_clients.append({
+            "client_id": client_id,
+            "display_name": name,
+            "snapshot_score": snapshot,
+            "baseline_score": lifetime
         })
 
-        existing_client["display_name"] = str(
-            c.get("display_name", existing_client.get("display_name", ""))
-        ).strip()
-
-        if "baseline_score" in c:
-            existing_client["baseline_score"] = safe_int(c.get("baseline_score", 0))
-
-        if "snapshot_score" in c:
-            existing_client["snapshot_score"] = safe_int(c.get("snapshot_score", 0))
-
-        existing[cid] = existing_client
-
-    data["clients"] = list(existing.values())
+    data["clients"] = new_clients
     save_data(data)
 
-    return jsonify({"status": "success", "count": len(data["clients"])})
+    print("🔥 SAVED CLIENTS:", len(new_clients))
+
+    return jsonify({
+        "status": "success",
+        "count": len(new_clients)
+    })
 
 
 # ==============================

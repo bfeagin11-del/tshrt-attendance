@@ -150,7 +150,24 @@ def toggle():
 
     save_data(data)
     return jsonify({"status": "ok"})
+@app.route("/api/toggle_date", methods=["POST"])
+def toggle_date():
+    data = load_data()
+    payload = request.get_json()
 
+    cid = payload["client_id"]
+    date = payload["date"]
+
+    data.setdefault("attendance", {})
+    data["attendance"].setdefault(date, [])
+
+    if cid in data["attendance"][date]:
+        data["attendance"][date].remove(cid)
+    else:
+        data["attendance"][date].append(cid)
+
+    save_data(data)
+    return jsonify({"status": "ok"})
 
 # ==============================
 # 🔥 CHECK-IN PAGE (FIXES OPTION 7)
@@ -159,53 +176,87 @@ def toggle():
 @app.route("/checkin")
 def checkin():
     data = load_data()
+    dates = get_dates()
 
     html = """
     <html>
     <head>
         <style>
-            body { background:black; color:white; text-align:center; font-family:Arial; }
+            body { background:black; color:white; font-family:Arial; text-align:center; }
             h1 { color:gold; }
-            button {
-                padding:12px;
-                margin:6px;
-                font-size:18px;
-                background:gold;
-                border:none;
-                cursor:pointer;
-                width:250px;
+
+            table { margin:auto; border-collapse:collapse; }
+            th, td {
+                border:1px solid gold;
+                padding:8px;
+                font-size:14px;
             }
+
+            th { color:gold; }
+
+            .box {
+                width:20px;
+                height:20px;
+                cursor:pointer;
+                margin:auto;
+            }
+
+            .present { background:green; }
+            .absent { background:white; }
+
         </style>
     </head>
     <body>
-        <h1>🔥 CLIENT CHECK-IN 🔥</h1>
+
+    <h1>🔥 ATTENDANCE BOARD 🔥</h1>
+
+    <table>
+        <tr>
+            <th>Name</th>
     """
 
+    # Header dates
+    for d in dates:
+        html += f"<th>{d[5:]}</th>"
+
+    html += "</tr>"
+
+    # Rows
     for c in data.get("clients", []):
-        html += f"""
-        <div>
-            <button onclick="checkin('{c['client_id']}')">{c['display_name']}</button>
-        </div>
-        """
+        cid = c["client_id"]
+        name = c["display_name"]
+
+        html += f"<tr><td>{name}</td>"
+
+        for d in dates:
+            present = cid in data.get("attendance", {}).get(d, [])
+            cls = "present" if present else "absent"
+
+            html += f"""
+            <td>
+                <div class="box {cls}" onclick="toggle('{cid}', '{d}')"></div>
+            </td>
+            """
+
+        html += "</tr>"
 
     html += """
+    </table>
+
     <script>
-    function checkin(cid){
-    fetch('/api/toggle', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ client_id: cid })
-    }).then(()=>{
-        alert("Check-in recorded");
-        location.reload();
-    });
-}
+    function toggle(cid, date){
+        fetch('/api/toggle_date', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ client_id: cid, date: date })
+        }).then(()=>location.reload());
+    }
     </script>
+
     </body></html>
     """
 
     return html
-
 
 # ==============================
 # 🔥 DISPLAY BOARD (OPTION 9)

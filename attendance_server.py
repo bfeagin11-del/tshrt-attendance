@@ -220,8 +220,8 @@ def board():
         snapshot = safe_int(c.get("snapshot_score", 0))
         baseline = safe_int(c.get("baseline_score", 0))
 
-        current = snapshot + (attendance * 5)
-        lifetime = baseline + (attendance * 5)
+        current = snapshot + (attendance * 2)
+        lifetime = baseline + (attendance * 2)
 
         rows.append((c.get("display_name", ""), current, lifetime))
 

@@ -191,12 +191,15 @@ def checkin():
     html += """
     <script>
     function checkin(cid){
-        fetch('/api/toggle', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ client_id: cid })
-        }).then(()=>location.reload());
-    }
+    fetch('/api/toggle', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ client_id: cid })
+    }).then(()=>{
+        alert("Check-in recorded");
+        location.reload();
+    });
+}
     </script>
     </body></html>
     """

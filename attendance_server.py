@@ -1,34 +1,28 @@
 from flask import Flask, request, jsonify
-from datetime import datetime, timedelta
-import os
 import sqlite3
-
-print("🔥🔥🔥 PERMANENT VERSION LOADED 🔥🔥🔥")
+import os
 
 app = Flask(__name__)
 
 DB_FILE = "attendance.db"
-CHALLENGE_START = "2026-03-09"
-DAYS = 42
 
 
-# ==============================
-# INIT DB (PERMANENT)
-# ==============================
-
+# =========================
+# INIT DATABASE (SAFE)
+# =========================
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS clients (
-    client_id TEXT PRIMARY KEY,
-    display_name TEXT,
-    snapshot_score INTEGER,
-    baseline_score INTEGER,
-    in_challenge INTEGER DEFAULT 1
-)
-""")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        client_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        snapshot_score INTEGER DEFAULT 0,
+        baseline_score INTEGER DEFAULT 0,
+        in_challenge INTEGER DEFAULT 1
+    )
+    """)
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS attendance (
@@ -39,208 +33,21 @@ CREATE TABLE IF NOT EXISTS clients (
     """)
 
     conn.commit()
-    conn.close()
 
-
-# ==============================
-# HELPERS
-# ==============================
-
-def get_dates():
-    start = datetime.strptime(CHALLENGE_START, "%Y-%m-%d")
-    dates = []
-    for i in range(DAYS):
-        d = start + timedelta(days=i)
-        if d.weekday() in [0, 2]:
-            dates.append(d.strftime("%Y-%m-%d"))
-    return dates
-
-
-def safe_int(v, default=0):
+    # 🔥 ADD COLUMN IF DATABASE ALREADY EXISTS (SAFE)
     try:
-        return int(round(float(v)))
+        cur.execute("ALTER TABLE clients ADD COLUMN in_challenge INTEGER DEFAULT 1")
     except:
-        return default
-
-
-# ==============================
-# ROUTES
-# ==============================
-
-@app.route("/")
-def home():
-    return "TSHRT Attendance Server Running"
-
-
-@app.route("/debug/roster")
-def debug():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    cur.execute("SELECT * FROM clients")
-    clients = cur.fetchall()
-
-    cur.execute("SELECT * FROM attendance")
-    attendance = cur.fetchall()
-
-    conn.close()
-
-    return jsonify({
-        "clients": clients,
-        "attendance": attendance
-    })
-
-
-# ==============================
-# SYNC (FROM CONTROL PANEL)
-# ==============================
-
-@app.route("/api/roster/sync", methods=["POST"])
-def sync():
-    data = request.get_json() or {}
-
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    for c in data.get("clients", []):
-        name = c.get("name")
-        if not name:
-            continue
-
-        cid = name.replace(" ", "_").lower()
-
-        snapshot = safe_int(c.get("snapshot", 0))
-        lifetime = safe_int(c.get("lifetime", 0))
-
-        cur.execute("""
-        INSERT OR REPLACE INTO clients
-        VALUES (?, ?, ?, ?)
-        """, (cid, name, snapshot, lifetime))
+        pass
 
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "ok"})
 
-
-# ==============================
-# ATTENDANCE TOGGLE (PER DATE)
-# ==============================
-
-@app.route("/api/toggle_date", methods=["POST"])
-def toggle():
-    data = request.get_json()
-
-    cid = data["client_id"]
-    date = data["date"]
-
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    cur.execute("""
-    SELECT id FROM attendance WHERE client_id=? AND date=?
-    """, (cid, date))
-
-    row = cur.fetchone()
-
-    if row:
-        cur.execute("DELETE FROM attendance WHERE id=?", (row[0],))
-    else:
-        cur.execute("""
-        INSERT INTO attendance (client_id, date)
-        VALUES (?, ?)
-        """, (cid, date))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({"status": "ok"})
-
-
-# ==============================
-# CHECK-IN GRID (YOUR STYLE)
-# ==============================
-
-@app.route("/checkin")
-def checkin():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    cur.execute("SELECT client_id, display_name FROM clients")
-    clients = cur.fetchall()
-
-    dates = get_dates()
-
-    html = """
-    <html>
-    <head>
-        <style>
-            body { background:black; color:white; text-align:center; font-family:Arial; }
-            h1 { color:gold; }
-            table { margin:auto; border-collapse:collapse; }
-            th, td { border:1px solid gold; padding:8px; }
-            .box { width:20px; height:20px; cursor:pointer; margin:auto; }
-            .present { background:green; }
-            .absent { background:white; }
-        </style>
-    </head>
-    <body>
-    <h1>🔥 ATTENDANCE BOARD 🔥</h1>
-    <table>
-    <tr><th>Name</th>
-    """
-
-    for d in dates:
-        html += f"<th>{d[5:]}</th>"
-
-    html += "</tr>"
-
-    for cid, name in clients:
-        html += f"<tr><td>{name}</td>"
-
-        for d in dates:
-            cur.execute("""
-            SELECT 1 FROM attendance WHERE client_id=? AND date=?
-            """, (cid, d))
-
-            present = cur.fetchone() is not None
-            cls = "present" if present else "absent"
-
-            html += f"""
-            <td>
-            <div class="box {cls}" onclick="toggle('{cid}','{d}')"></div>
-            </td>
-            """
-
-        html += "</tr>"
-
-    conn.close()
-
-    html += """
-    </table>
-
-    <script>
-    function toggle(cid,date){
-        fetch('/api/toggle_date',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({client_id:cid,date:date})
-        }).then(()=>location.reload());
-    }
-    </script>
-
-    </body></html>
-    """
-
-    return html
-
-
-# ==============================
-# LEADERBOARD
-# ==============================
-
-@app.route("/board")
-def board():
+# =========================
+# LOAD DATA (FOR DEBUG/BOARD)
+# =========================
+def load_data():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
@@ -248,44 +55,159 @@ def board():
     SELECT client_id, display_name, snapshot_score, baseline_score
     FROM clients
     WHERE in_challenge = 1
-""")
+    """)
 
-    rows = []
+    clients = [
+        {
+            "client_id": row[0],
+            "display_name": row[1],
+            "snapshot_score": row[2],
+            "baseline_score": row[3],
+        }
+        for row in cur.fetchall()
+    ]
 
-    for cid, name, snap, base in clients:
+    cur.execute("SELECT client_id, date FROM attendance")
+    attendance_rows = cur.fetchall()
 
-        cur.execute("SELECT COUNT(*) FROM attendance WHERE client_id=?", (cid,))
-        attendance = cur.fetchone()[0]
-
-        current = snap + (attendance * 2)
-        lifetime = base + (attendance * 2)
-
-        rows.append((name, current, lifetime))
+    attendance = {}
+    for cid, date in attendance_rows:
+        attendance.setdefault(cid, []).append(date)
 
     conn.close()
 
-    rows.sort(key=lambda x: -x[1])
+    return {"clients": clients, "attendance": attendance}
 
-    html = "<html><body style='background:black;color:white;text-align:center;font-family:Arial;'>"
-    html += "<h1 style='color:gold;'>🔥 CHALLENGE LEADERBOARD 🔥</h1>"
 
-    for i, r in enumerate(rows, 1):
-        html += f"<div style='font-size:26px;margin:10px;'>#{i} {r[0]} | C:{r[1]} | L:{r[2]}</div>"
+# =========================
+# SYNC ENDPOINT
+# =========================
+@app.route("/api/roster/sync", methods=["POST"])
+def sync_roster():
+    data = request.json
+    clients = data.get("clients", [])
+
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    for c in clients:
+        cur.execute("""
+        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+        VALUES (?, ?, ?, ?, 1)
+        ON CONFLICT(client_id) DO UPDATE SET
+            display_name=excluded.display_name,
+            snapshot_score=excluded.snapshot_score,
+            baseline_score=excluded.baseline_score
+        """, (
+            c.get("client_id"),
+            c.get("display_name"),
+            c.get("snapshot_score", 0),
+            c.get("baseline_score", 0)
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "ok", "clients_received": len(clients)})
+
+
+# =========================
+# CHECK-IN PAGE
+# =========================
+@app.route("/checkin")
+def checkin():
+    data = load_data()
+
+    html = """
+    <html>
+    <body style="background:black; color:white; font-family:Arial; text-align:center;">
+    <h1 style="color:gold;">Client Check-In</h1>
+    """
+
+    for c in data["clients"]:
+        html += f"""
+        <div style="margin:10px;">
+            <form method="POST" action="/checkin_submit">
+                <input type="hidden" name="client_id" value="{c['client_id']}">
+                <button style="font-size:20px;">{c['display_name']}</button>
+            </form>
+        </div>
+        """
 
     html += "</body></html>"
     return html
 
 
-@app.route("/leaderboard")
-def leaderboard():
-    return board()
+@app.route("/checkin_submit", methods=["POST"])
+def checkin_submit():
+    cid = request.form.get("client_id")
+
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO attendance (client_id, date) VALUES (?, date('now'))", (cid,))
+    conn.commit()
+    conn.close()
+
+    return "Checked In"
 
 
-# ==============================
-# START
-# ==============================
+# =========================
+# LEADERBOARD
+# =========================
+@app.route("/board")
+def board():
+    data = load_data()
 
+    rows = []
+
+    for c in data["clients"]:
+        cid = c["client_id"]
+        attendance_count = len(data["attendance"].get(cid, []))
+
+        snapshot = int(c.get("snapshot_score", 0))
+        baseline = int(c.get("baseline_score", 0))
+
+        current = snapshot + (attendance_count * 2)
+        lifetime = baseline + current
+
+        rows.append((c["display_name"], current, lifetime))
+
+    rows.sort(key=lambda r: -r[1])
+
+    html = """
+    <html>
+    <head>
+        <style>
+            body { background:black; color:white; text-align:center; font-family:Arial; }
+            h1 { color:gold; font-size:48px; }
+            .row { font-size:26px; margin:10px; border-bottom:1px solid gold; padding:10px; }
+        </style>
+    </head>
+    <body>
+        <h1>🔥 CHALLENGE LEADERBOARD 🔥</h1>
+    """
+
+    for i, r in enumerate(rows, 1):
+        html += f'<div class="row">#{i} {r[0]} | C:{r[1]} | L:{r[2]}</div>'
+
+    html += "</body></html>"
+
+    return html
+
+
+# =========================
+# DEBUG ROUTE
+# =========================
+@app.route("/debug/roster")
+def debug_roster():
+    return jsonify(load_data())
+
+
+# =========================
+# RUN
+# =========================
 if __name__ == "__main__":
     init_db()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    print("🔥🔥🔥 CLEAN SERVER RUNNING 🔥🔥🔥")
+    app.run(host="0.0.0.0", port=10000)

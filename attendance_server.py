@@ -90,25 +90,25 @@ def sync_roster():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    for c in clients:
-        cur.execute("""
-        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
-        VALUES (?, ?, ?, ?, 1)
-        ON CONFLICT(client_id) DO UPDATE SET
-            display_name=excluded.display_name,
-            snapshot_score=excluded.snapshot_score,
-            baseline_score=excluded.baseline_score
-        """, (
-            c.get("client_id"),
-            c.get("display_name"),
-            c.get("snapshot_score", 0),
-            c.get("baseline_score", 0)
-        ))
+    ffor c in data.get("clients", []):
 
-    conn.commit()
-    conn.close()
+    cid = c.get("client_id")
+    name = c.get("display_name")
 
-    return jsonify({"status": "ok", "clients_received": len(clients)})
+    if not cid or not name:
+        continue
+
+    snapshot = int(c.get("snapshot_score", 0))
+    lifetime = int(c.get("baseline_score", 0))
+
+    cur.execute("""
+    INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+    VALUES (?, ?, ?, ?, 1)
+    ON CONFLICT(client_id) DO UPDATE SET
+        display_name=excluded.display_name,
+        snapshot_score=excluded.snapshot_score,
+        baseline_score=excluded.baseline_score
+    """, (cid, name, snapshot, lifetime))
 
 
 # =========================

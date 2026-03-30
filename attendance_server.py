@@ -88,9 +88,9 @@ def sync_roster():
     clients = data.get("clients", [])
 
     conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
+cur = conn.cursor()
 
-    ffor c in data.get("clients", []):
+for c in data.get("clients", []):
 
     cid = c.get("client_id")
     name = c.get("display_name")
@@ -109,6 +109,11 @@ def sync_roster():
         snapshot_score=excluded.snapshot_score,
         baseline_score=excluded.baseline_score
     """, (cid, name, snapshot, lifetime))
+
+conn.commit()
+conn.close()
+
+return jsonify({"status": "ok"})
 
 
 # =========================

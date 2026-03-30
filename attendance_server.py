@@ -20,14 +20,15 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS clients (
-        client_id TEXT PRIMARY KEY,
-        display_name TEXT,
-        snapshot_score INTEGER,
-        baseline_score INTEGER
-    )
-    """)
+cur.execute("""
+CREATE TABLE IF NOT EXISTS clients (
+    client_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    snapshot_score INTEGER,
+    baseline_score INTEGER,
+    in_challenge INTEGER DEFAULT 1
+)
+""")
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS attendance (
@@ -243,8 +244,11 @@ def board():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    cur.execute("SELECT client_id, display_name, snapshot_score, baseline_score FROM clients")
-    clients = cur.fetchall()
+    cur.execute("""
+    SELECT client_id, display_name, snapshot_score, baseline_score
+    FROM clients
+    WHERE in_challenge = 1
+""")
 
     rows = []
 

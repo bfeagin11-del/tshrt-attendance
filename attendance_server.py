@@ -83,7 +83,6 @@ def load_data():
 # SYNC ENDPOINT
 # =========================
 @app.route("/api/roster/sync", methods=["POST"])
-@app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     data = request.get_json()
 

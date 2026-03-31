@@ -84,36 +84,35 @@ def load_data():
 # =========================
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    data = request.json
-    clients = data.get("clients", [])
+    data = request.json or {}
 
     conn = sqlite3.connect(DB_FILE)
-cur = conn.cursor()
+    cur = conn.cursor()
 
-for c in data.get("clients", []):
+    for c in data.get("clients", []):
 
-    cid = c.get("client_id")
-    name = c.get("display_name")
+        cid = c.get("client_id")
+        name = c.get("display_name")
 
-    if not cid or not name:
-        continue
+        if not cid or not name:
+            continue
 
-    snapshot = int(c.get("snapshot_score", 0))
-    lifetime = int(c.get("baseline_score", 0))
+        snapshot = int(c.get("snapshot_score", 0))
+        lifetime = int(c.get("baseline_score", 0))
 
-    cur.execute("""
-    INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
-    VALUES (?, ?, ?, ?, 1)
-    ON CONFLICT(client_id) DO UPDATE SET
-        display_name=excluded.display_name,
-        snapshot_score=excluded.snapshot_score,
-        baseline_score=excluded.baseline_score
-    """, (cid, name, snapshot, lifetime))
+        cur.execute("""
+        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+        VALUES (?, ?, ?, ?, 1)
+        ON CONFLICT(client_id) DO UPDATE SET
+            display_name=excluded.display_name,
+            snapshot_score=excluded.snapshot_score,
+            baseline_score=excluded.baseline_score
+        """, (cid, name, snapshot, lifetime))
 
-conn.commit()
-conn.close()
+    conn.commit()
+    conn.close()
 
-return jsonify({"status": "ok"})
+    return jsonify({"status": "ok"})
 
 
 # =========================

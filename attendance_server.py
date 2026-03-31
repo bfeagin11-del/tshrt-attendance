@@ -89,16 +89,28 @@ def sync_roster():
     if not data or "clients" not in data:
         return jsonify({"ok": False, "error": "No client data received"}), 400
 
-    # 🔥 LOAD EXISTING DATA
-    existing = load_data()
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-    # 🔥 REPLACE CLIENT LIST
-    existing["clients"] = data["clients"]
+    # 🔥 CLEAR EXISTING CLIENTS
+    cur.execute("DELETE FROM clients")
 
-    # 🔥 SAVE TO FILE (THIS IS WHAT YOU WERE MISSING)
-    save_data(existing)
+    # 🔥 INSERT NEW CLIENTS
+    for c in data["clients"]:
+        cur.execute("""
+            INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+            VALUES (?, ?, ?, ?, 1)
+        """, (
+            c.get("client_id"),
+            c.get("display_name"),
+            int(c.get("snapshot_score", 0)),
+            int(c.get("baseline_score", 0))
+        ))
 
-    print(f"🔥 SAVED {len(data['clients'])} CLIENTS TO SERVER")
+    conn.commit()
+    conn.close()
+
+    print(f"🔥 SYNCED {len(data['clients'])} CLIENTS TO DATABASE")
 
     return jsonify({
         "ok": True,

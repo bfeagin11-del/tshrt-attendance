@@ -83,36 +83,28 @@ def load_data():
 # SYNC ENDPOINT
 # =========================
 @app.route("/api/roster/sync", methods=["POST"])
+@app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    data = request.json or {}
+    data = request.get_json()
 
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
+    if not data or "clients" not in data:
+        return jsonify({"ok": False, "error": "No client data received"}), 400
 
-    for c in data.get("clients", []):
+    # 🔥 LOAD EXISTING DATA
+    existing = load_data()
 
-        cid = c.get("client_id")
-        name = c.get("display_name")
+    # 🔥 REPLACE CLIENT LIST
+    existing["clients"] = data["clients"]
 
-        if not cid or not name:
-            continue
+    # 🔥 SAVE TO FILE (THIS IS WHAT YOU WERE MISSING)
+    save_data(existing)
 
-        snapshot = int(c.get("snapshot_score", 0))
-        lifetime = int(c.get("baseline_score", 0))
+    print(f"🔥 SAVED {len(data['clients'])} CLIENTS TO SERVER")
 
-        cur.execute("""
-        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
-        VALUES (?, ?, ?, ?, 1)
-        ON CONFLICT(client_id) DO UPDATE SET
-            display_name=excluded.display_name,
-            snapshot_score=excluded.snapshot_score,
-            baseline_score=excluded.baseline_score
-        """, (cid, name, snapshot, lifetime))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "ok": True,
+        "count": len(data["clients"])
+    })
 
 
 # =========================

@@ -86,6 +86,7 @@ for row in cur.fetchall():
 # =========================
 # SYNC ENDPOINT
 # =========================
+print("🔥 RAW CLIENT DATA:", data["clients"][:2])
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     data = request.get_json()
@@ -101,35 +102,28 @@ def sync_roster():
 
     clean_count = 0
 
-    for c in data["clients"]:
-        name = c.get("display_name")
-        cid = c.get("client_id")
+for c in data["clients"]:
+    cid = c.get("client_id")
+    name = c.get("display_name")
 
-        # 🔥 BLOCK BAD DATA (THIS IS WHAT YOU WERE MISSING)
-        if not name or name == "None" or not cid:
-            continue
+    print("CHECKING:", cid, "|", name)
 
-        cur.execute("""
-            INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
-            VALUES (?, ?, ?, ?, 1)
-        """, (
-            cid,
-            name,
-            int(c.get("snapshot_score", 0)),
-            int(c.get("baseline_score", 0))
-        ))
+    # Only skip if truly broken
+    if cid is None or name is None:
+        print("❌ SKIPPED BAD ROW")
+        continue
 
-        clean_count += 1
+    cur.execute("""
+        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+        VALUES (?, ?, ?, ?, 1)
+    """, (
+        cid,
+        str(name),
+        int(c.get("snapshot_score", 0)),
+        int(c.get("baseline_score", 0))
+    ))
 
-    conn.commit()
-    conn.close()
-
-    print(f"🔥 CLEAN SYNC COMPLETE: {clean_count} clients loaded")
-
-    return jsonify({
-        "ok": True,
-        "count": clean_count
-    })
+    clean_count += 1
 
 # =========================
 # CHECK-IN PAGE

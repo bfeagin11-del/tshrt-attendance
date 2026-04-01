@@ -58,15 +58,18 @@ def load_data():
     WHERE in_challenge = 1
     """)
 
-    clients = [
-        {
-            "client_id": row[0],
-            "display_name": row[1],
-            "snapshot_score": row[2],
-            "baseline_score": row[3],
-        }
-        for row in cur.fetchall()
-    ]
+    clients = []
+
+for row in cur.fetchall():
+    if not row[1]:  # skip bad names
+        continue
+
+    clients.append({
+        "client_id": row[0],
+        "display_name": row[1],
+        "snapshot_score": row[2],
+        "baseline_score": row[3],
+    })
 
     cur.execute("SELECT client_id, date FROM attendance")
     attendance_rows = cur.fetchall()
@@ -93,31 +96,40 @@ def sync_roster():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    # 🔥 CLEAR EXISTING CLIENTS
+    # 🔥 FULL CLEAN REBUILD (PERMANENT FIX)
     cur.execute("DELETE FROM clients")
 
-    # 🔥 INSERT NEW CLIENTS
+    clean_count = 0
+
     for c in data["clients"]:
+        name = c.get("display_name")
+        cid = c.get("client_id")
+
+        # 🔥 BLOCK BAD DATA (THIS IS WHAT YOU WERE MISSING)
+        if not name or name == "None" or not cid:
+            continue
+
         cur.execute("""
             INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
             VALUES (?, ?, ?, ?, 1)
         """, (
-            c.get("client_id"),
-            c.get("display_name"),
+            cid,
+            name,
             int(c.get("snapshot_score", 0)),
             int(c.get("baseline_score", 0))
         ))
 
+        clean_count += 1
+
     conn.commit()
     conn.close()
 
-    print(f"🔥 SYNCED {len(data['clients'])} CLIENTS TO DATABASE")
+    print(f"🔥 CLEAN SYNC COMPLETE: {clean_count} clients loaded")
 
     return jsonify({
         "ok": True,
-        "count": len(data["clients"])
+        "count": clean_count
     })
-
 
 # =========================
 # CHECK-IN PAGE

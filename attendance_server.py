@@ -1,3 +1,4 @@
+print("🔥🔥🔥 THIS IS THE REAL SERVER VERSION 🔥🔥🔥")
 from flask import Flask, request, jsonify
 import sqlite3
 import os

@@ -67,41 +67,28 @@ def load_data():
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    data = request.get_json()
+    incoming = request.get_json()
 
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
+    if not incoming or "clients" not in incoming:
+        return jsonify({"ok": False, "error": "No client data received"}), 400
 
-    cur.execute("DELETE FROM clients")
-    cur.execute("DELETE FROM attendance")
+    # LOAD EXISTING DATA
+    data = load_data()
 
-    count = 0
+    # REPLACE CLIENT LIST
+    data["clients"] = incoming["clients"]
 
-    for c in data.get("clients", []):
-        cid = c.get("client_id")
-        name = c.get("display_name")
+    # KEEP EXISTING ATTENDANCE (DO NOT WIPE)
+    if "attendance" not in data:
+        data["attendance"] = {}
 
-        if not cid or not name:
-            continue
+    # SAVE TO FILE
+    save_data(data)
 
-        cur.execute("""
-            INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
-            VALUES (?, ?, ?, ?, 1)
-        """, (
-            cid,
-            name,
-            int(c.get("snapshot_score", 0)),
-            int(c.get("baseline_score", 0))
-        ))
-
-        count += 1
-
-    conn.commit()
-    conn.close()
-
-    print(f"SYNCED {count} CLIENTS")
-
-    return jsonify({"ok": True, "count": count})
+    return jsonify({
+        "ok": True,
+        "clients_received": len(incoming["clients"])
+    })
 
 
 @app.route("/checkin")

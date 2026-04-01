@@ -2,6 +2,23 @@ print("🔥 CLEAN SERVER STARTING 🔥")
 
 from flask import Flask, request, jsonify
 import sqlite3
+import json
+import os
+
+DATA_FILE = "roster_data.json"
+
+
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"clients": [], "attendance": {}}
+
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 app = Flask(__name__)
 

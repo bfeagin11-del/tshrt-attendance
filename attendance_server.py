@@ -73,34 +73,33 @@ def sync_roster():
     if not incoming:
         return jsonify({"ok": False}), 400
 
-    # Accept BOTH formats (fixes your system permanently)
+    # Accept BOTH formats
     if "clients" in incoming:
         clients = incoming["clients"]
     else:
-        # assume raw list being sent
         clients = incoming
 
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
+    # Clear old data
     cur.execute("DELETE FROM clients")
 
     inserted = 0
 
     for c in clients:
-        # 🔥 BUILD FROM YOUR REAL FILE STRUCTURE
+        # Build name
         first = c.get("first_name", "")
         last = c.get("last_name", "")
-
         display_name = f"{first} {last}".strip()
 
-        # use filename-style fallback ID
-        client_id = f"{first}_{last}".lower()
-
-        if not display_name.strip():
+        if not display_name:
             continue
 
-        # 🔥 GET LATEST SNAPSHOT SCORE
+        # Build ID
+        client_id = f"{first}_{last}".lower()
+
+        # Get score
         snapshot = 0
         baseline = 0
 
@@ -109,6 +108,7 @@ def sync_roster():
             latest = tests[-1]
             snapshot = int(latest.get("snapshot_score", latest.get("score", 0)))
 
+        # Insert into DB
         cur.execute("""
         INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
         VALUES (?, ?, ?, ?, 1)
@@ -124,11 +124,12 @@ def sync_roster():
     conn.commit()
     conn.close()
 
+    print(f"✅ INSERTED {inserted} CLIENTS")
+
     return jsonify({
         "ok": True,
         "inserted": inserted
     })
-
 # =========================
 # CHECK-IN PAGE
 # =========================

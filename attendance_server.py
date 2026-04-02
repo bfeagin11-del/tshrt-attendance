@@ -151,7 +151,13 @@ def board():
 
     for c in data["clients"]:
         cid = c["client_id"]
-        attendance_count = len(data["attendance"].get(cid, []))
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+
+        cur.execute("SELECT COUNT(*) FROM attendance WHERE client_id=?", (cid,))
+        = cur.fetchone()[0]
+
+conn.close()
 
         snapshot = int(c.get("snapshot_score", 0))
         baseline = int(c.get("baseline_score", 0))

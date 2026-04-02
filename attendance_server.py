@@ -124,7 +124,6 @@ def sync_roster():
         "inserted": inserted
     })
 
-
 # =========================
 # CHECK-IN PAGE
 # =========================

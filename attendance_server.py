@@ -73,7 +73,12 @@ def sync_roster():
     if not incoming:
         return jsonify({"ok": False}), 400
 
-    clients = incoming.get("clients", [])
+    # Accept BOTH formats (fixes your system permanently)
+    if "clients" in incoming:
+        clients = incoming["clients"]
+    else:
+        # assume raw list being sent
+        clients = incoming
 
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()

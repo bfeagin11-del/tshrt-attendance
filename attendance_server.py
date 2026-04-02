@@ -71,39 +71,57 @@ def sync_roster():
     incoming = request.get_json()
 
     if not incoming:
-        return jsonify({"ok": False, "error": "No data"}), 400
+        return jsonify({"ok": False}), 400
 
     clients = incoming.get("clients", [])
 
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    # 🔥 CLEAR OLD DATA (prevents duplicates / None issues)
     cur.execute("DELETE FROM clients")
 
-    for c in clients:
-        cid = c.get("client_id")
-        name = c.get("display_name")
+    inserted = 0
 
-        if not cid or not name:
-            continue  # skip bad entries
+    for c in clients:
+        # 🔥 BUILD FROM YOUR REAL FILE STRUCTURE
+        first = c.get("first_name", "")
+        last = c.get("last_name", "")
+
+        display_name = f"{first} {last}".strip()
+
+        # use filename-style fallback ID
+        client_id = f"{first}_{last}".lower()
+
+        if not display_name.strip():
+            continue
+
+        # 🔥 GET LATEST SNAPSHOT SCORE
+        snapshot = 0
+        baseline = 0
+
+        tests = c.get("tests", [])
+        if tests:
+            latest = tests[-1]
+            snapshot = int(latest.get("snapshot_score", latest.get("score", 0)))
 
         cur.execute("""
         INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
         VALUES (?, ?, ?, ?, 1)
         """, (
-            cid,
-            name,
-            int(c.get("snapshot_score", 0)),
-            int(c.get("baseline_score", 0))
+            client_id,
+            display_name,
+            snapshot,
+            baseline
         ))
+
+        inserted += 1
 
     conn.commit()
     conn.close()
 
     return jsonify({
         "ok": True,
-        "loaded": len(clients)
+        "inserted": inserted
     })
 
 

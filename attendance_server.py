@@ -70,19 +70,30 @@ def load_data():
 def sync_roster():
     incoming = request.get_json()
 
-    if not incoming or "clients" not in incoming:
-        return jsonify({"ok": False}), 400
+    if not incoming:
+        return jsonify({"ok": False, "error": "No data"}), 400
+
+    clients = incoming.get("clients", [])
 
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    for c in incoming["clients"]:
+    # 🔥 CLEAR OLD DATA (prevents duplicates / None issues)
+    cur.execute("DELETE FROM clients")
+
+    for c in clients:
+        cid = c.get("client_id")
+        name = c.get("display_name")
+
+        if not cid or not name:
+            continue  # skip bad entries
+
         cur.execute("""
-        INSERT OR REPLACE INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
+        INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
         VALUES (?, ?, ?, ?, 1)
         """, (
-            c.get("client_id"),
-            c.get("display_name"),
+            cid,
+            name,
             int(c.get("snapshot_score", 0)),
             int(c.get("baseline_score", 0))
         ))
@@ -90,7 +101,10 @@ def sync_roster():
     conn.commit()
     conn.close()
 
-    return jsonify({"ok": True, "count": len(incoming["clients"])})
+    return jsonify({
+        "ok": True,
+        "loaded": len(clients)
+    })
 
 
 # =========================

@@ -1,778 +1,267 @@
-import os
-import sqlite3
-from datetime import datetime, date
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for
+import sqlite3
+from datetime import datetime
 
 app = Flask(__name__)
 
-# =========================================================
-# CONFIG
-# =========================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.environ.get("TSHRT_DB_FILE", os.path.join(BASE_DIR, "attendance.db"))
+DB_FILE = "attendance.db"
 
-# Challenge start date for attendance scoring
-CHALLENGE_START = date(2026, 3, 9)
-
-# Allowed attendance days for challenge scoring
-ALLOWED_WEEKDAYS = {0, 2}  # Monday=0, Wednesday=2
-
-
-# =========================================================
-# DATABASE HELPERS
-# =========================================================
-def get_conn():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
+# -------------------------------
+# INIT DB
+# -------------------------------
 def init_db():
-    conn = get_conn()
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            display_name TEXT NOT NULL UNIQUE,
-            first_name TEXT DEFAULT '',
-            last_name TEXT DEFAULT '',
-            baseline_score INTEGER DEFAULT 0,
-            snapshot_score INTEGER DEFAULT 0,
-            group_name TEXT DEFAULT '',
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            display_name TEXT PRIMARY KEY,
+            first_name TEXT,
+            last_name TEXT,
+            group_name TEXT,
+            attendance_count INTEGER DEFAULT 0,
+            current_score INTEGER DEFAULT 0,
+            lifetime_score INTEGER DEFAULT 0
         )
     """)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            display_name TEXT NOT NULL,
-            class_date TEXT NOT NULL,
-            attended INTEGER DEFAULT 0,
-            finalized INTEGER DEFAULT 0,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(display_name, class_date)
+            class_date TEXT,
+            display_name TEXT,
+            attended INTEGER
         )
     """)
 
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_attendance_display_date
-        ON attendance(display_name, class_date)
-    """)
-
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_attendance_date
-        ON attendance(class_date)
-    """)
-
     conn.commit()
     conn.close()
 
+init_db()
 
-# =========================================================
-# DATA NORMALIZATION
-# =========================================================
-def safe_int(value, default=0):
-    try:
-        if value is None or value == "":
-            return default
-        return int(float(value))
-    except (ValueError, TypeError):
-        return default
+# -------------------------------
+# PING (WAKE SERVER)
+# -------------------------------
+@app.route("/ping")
+def ping():
+    return {"status": "awake"}
 
-
-def normalize_client(raw):
-    # Try multiple naming formats (this is the fix)
-    display_name = str(
-        raw.get("display_name")
-        or raw.get("name")
-        or raw.get("client_name")
-        or f"{raw.get('first_name','')} {raw.get('last_name','')}"
-    ).strip()
-
-    if not display_name:
-        return None
-
-    def safe_int(val):
-        try:
-            return int(float(val))
-        except:
-            return 0
-
-    return {
-        "display_name": display_name,
-        "first_name": raw.get("first_name", ""),
-        "last_name": raw.get("last_name", ""),
-        "baseline_score": safe_int(
-            raw.get("baseline_score")
-            or raw.get("life_score")
-            or raw.get("lifetime")
-        ),
-        "snapshot_score": safe_int(
-            raw.get("snapshot_score")
-            or raw.get("current_score")
-            or raw.get("snap")
-        ),
-        "group_name": raw.get("group_name") or raw.get("group") or ""
-    }
-
-# =========================================================
-# ATTENDANCE / SCORE LOGIC
-# =========================================================
-def is_scoring_day(date_str):
-    try:
-        d = datetime.strptime(date_str, "%Y-%m-%d").date()
-        return d >= CHALLENGE_START and d.weekday() in ALLOWED_WEEKDAYS
-    except Exception:
-        return False
-
-
-def count_attendance_for_client(conn, display_name):
-    cur = conn.cursor()
-
-    rows = cur.execute("""
-        SELECT attended, finalized
-        FROM attendance
-        WHERE display_name = ?
-    """, (display_name,)).fetchall()
-
-    count = 0
-    for row in rows:
-        if row["attended"] == 1 and row["finalized"] == 1:
-            count += 1
-
-    return count
-
-
-def get_clients_with_scores():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    clients = cur.execute("""
-        SELECT display_name, first_name, last_name, baseline_score, snapshot_score, group_name
-        FROM clients
-        ORDER BY display_name COLLATE NOCASE ASC
-    """).fetchall()
-
-    results = []
-    for row in clients:
-        attendance_count = count_attendance_for_client(conn, row["display_name"])
-
-        current_score = safe_int(row["snapshot_score"]) + attendance_count
-        lifetime_score = safe_int(row["baseline_score"]) + safe_int(row["snapshot_score"]) + attendance_count
-
-        results.append({
-            "display_name": row["display_name"],
-            "first_name": row["first_name"],
-            "last_name": row["last_name"],
-            "baseline_score": safe_int(row["baseline_score"]),
-            "snapshot_score": safe_int(row["snapshot_score"]),
-            "attendance_count": attendance_count,
-            "current_score": current_score,
-            "lifetime_score": lifetime_score,
-            "group_name": row["group_name"] or "",
-        })
-
-    conn.close()
-    return results
-
-
-def get_attendance_map_for_date(class_date):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    rows = cur.execute("""
-        SELECT display_name, attended, finalized
-        FROM attendance
-        WHERE class_date = ?
-    """, (class_date,)).fetchall()
-
-    conn.close()
-
-    result = {}
-    for row in rows:
-        result[row["display_name"]] = {
-            "attended": int(row["attended"]),
-            "finalized": int(row["finalized"]),
-        }
-    return result
-
-
-def save_attendance_for_date(class_date, attended_names, finalize=False):
-    import sqlite3
-
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    # -------------------------
-    # CHECK IF DATE ALREADY SCORED
-    # -------------------------
-    cur.execute("""
-        SELECT COUNT(*) FROM attendance
-        WHERE class_date = ? AND attended = 1
-    """, (class_date,))
-    already_scored = cur.fetchone()[0] > 0
-
-    # -------------------------
-    # CLEAR EXISTING FOR DATE
-    # -------------------------
-    cur.execute("DELETE FROM attendance WHERE class_date = ?", (class_date,))
-
-    # -------------------------
-    # LOAD CLIENTS
-    # -------------------------
-    clients = get_clients_with_scores()
-
-    for c in clients:
-        name = c.get("display_name")
-        attended = 1 if name in attended_names else 0
-
-        # SAVE ATTENDANCE RECORD
-        cur.execute("""
-            INSERT INTO attendance (class_date, display_name, attended)
-            VALUES (?, ?, ?)
-        """, (class_date, name, attended))
-
-        # -------------------------
-        # ONLY ADD POINTS ON FIRST SAVE
-        # -------------------------
-        if attended == 1 and not already_scored:
-            cur.execute("""
-                UPDATE clients
-                SET attendance_count = COALESCE(attendance_count, 0) + 1,
-                    current_score = COALESCE(current_score, 0) + 1,
-                    lifetime_score = COALESCE(lifetime_score, 0) + 1
-                WHERE display_name = ?
-            """, (name,))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================================================
-# ROUTES
-# =========================================================
-@app.route("/")
-def home():
-    clients = get_clients_with_scores()
-    return render_template_string("""
-    <!doctype html>
-    <html>
-    <head>
-        <title>TSHRT Attendance Home</title>
-        <style>
-            body { font-family: Arial, sans-serif; background: #111; color: #f5f5f5; padding: 30px; }
-            h1 { color: gold; }
-            a { color: gold; text-decoration: none; font-weight: bold; }
-            .box { background: #1b1b1b; border: 1px solid #333; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
-            .count { font-size: 20px; }
-        </style>
-    </head>
-    <body>
-        <h1>TSHRT Cloud Attendance System</h1>
-
-        <div class="box">
-            <div class="count">Loaded Clients: <strong>{{ clients|length }}</strong></div>
-        </div>
-
-        <div class="box">
-            <p><a href="/checkin">Open Check-In</a></p>
-            <p><a href="/board">Open Coach Board</a></p>
-            <p><a href="/display">Open Display Board</a></p>
-            <p><a href="/debug/roster">Open Debug Roster</a></p>
-        </div>
-    </body>
-    </html>
-    """, clients=clients)
-
-print("🔥🔥🔥 NEW VERSION LOADED 🔥🔥🔥")
+# -------------------------------
+# SYNC ROSTER
+# -------------------------------
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    incoming = request.get_json(silent=True)
+    data = request.get_json()
 
-    print("=== SYNC DEBUG ===")
-    print("RAW INCOMING TYPE:", type(incoming))
-    print("RAW INCOMING:", incoming)
+    if not data:
+        return jsonify({"ok": False, "error": "No data"}), 400
 
-    if incoming is None:
-        return jsonify({"ok": False, "error": "No JSON received"}), 400
+    clients = data.get("clients", data)
 
-    if isinstance(incoming, dict):
-        print("DICT KEYS:", list(incoming.keys()))
-
-    # Accept both formats
-    if isinstance(incoming, dict) and "clients" in incoming:
-        raw_clients = incoming["clients"]
-    elif isinstance(incoming, list):
-        raw_clients = incoming
-    else:
-        return jsonify({"ok": False, "error": "Invalid format"}), 400
-
-    print("CLIENT COUNT RECEIVED:", len(raw_clients))
-
-    conn = get_conn()
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM clients")
 
     inserted = 0
 
-    for raw in raw_clients:
-        print("RAW CLIENT:", raw)
-
-        if not isinstance(raw, dict):
-            continue
-
-        first = str(raw.get("first_name", "")).strip()
-        last = str(raw.get("last_name", "")).strip()
-
-        display = str(
-            raw.get("display_name")
-            or raw.get("name")
-            or raw.get("client_name")
-            or f"{first} {last}"
-        ).strip()
-
-        print("PARSED NAME:", display)
-
-        if not display:
+    for c in clients:
+        name = c.get("display_name")
+        if not name:
             continue
 
         cur.execute("""
-            INSERT INTO clients (display_name, first_name, last_name)
-            VALUES (?, ?, ?)
-        """, (display, first, last))
+            INSERT INTO clients (
+                display_name,
+                first_name,
+                last_name,
+                group_name,
+                attendance_count,
+                current_score,
+                lifetime_score
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name,
+            c.get("first_name", ""),
+            c.get("last_name", ""),
+            c.get("group_name", ""),
+            c.get("attendance_count", 0),
+            c.get("current_score", 0),
+            c.get("lifetime_score", 0),
+        ))
 
         inserted += 1
 
     conn.commit()
     conn.close()
 
-    print("INSERTED:", inserted)
-    print("==================")
-
     return jsonify({"ok": True, "inserted": inserted})
 
+# -------------------------------
+# GET CLIENTS
+# -------------------------------
+def get_clients():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
 
-@app.route("/debug/roster")
-def debug_roster():
-    clients = get_clients_with_scores()
-    return jsonify({
-        "ok": True,
-        "count": len(clients),
-        "clients": clients
-    })
+    cur.execute("SELECT * FROM clients ORDER BY last_name")
+    rows = cur.fetchall()
+    conn.close()
 
+    clients = []
+    for r in rows:
+        clients.append({
+            "display_name": r[0],
+            "first_name": r[1],
+            "last_name": r[2],
+            "group_name": r[3],
+            "attendance_count": r[4],
+            "current_score": r[5],
+            "lifetime_score": r[6],
+        })
 
-from datetime import datetime, date
+    return clients
 
+# -------------------------------
+# GET ATTENDANCE MAP
+# -------------------------------
+def get_attendance_map(class_date):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT display_name, attended
+        FROM attendance
+        WHERE class_date = ?
+    """, (class_date,))
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return {r[0]: {"attended": r[1]} for r in rows}
+
+# -------------------------------
+# SAVE ATTENDANCE (NO DOUBLE SCORE)
+# -------------------------------
+def save_attendance(class_date, attended_names):
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    # check if already scored
+    cur.execute("""
+        SELECT COUNT(*) FROM attendance
+        WHERE class_date = ? AND attended = 1
+    """, (class_date,))
+    already_scored = cur.fetchone()[0] > 0
+
+    cur.execute("DELETE FROM attendance WHERE class_date = ?", (class_date,))
+
+    clients = get_clients()
+
+    for c in clients:
+        name = c["display_name"]
+        attended = 1 if name in attended_names else 0
+
+        cur.execute("""
+            INSERT INTO attendance (class_date, display_name, attended)
+            VALUES (?, ?, ?)
+        """, (class_date, name, attended))
+
+        if attended == 1 and not already_scored:
+            cur.execute("""
+                UPDATE clients
+                SET attendance_count = attendance_count + 1,
+                    current_score = current_score + 1,
+                    lifetime_score = lifetime_score + 1
+                WHERE display_name = ?
+            """, (name,))
+
+    conn.commit()
+    conn.close()
+
+# -------------------------------
+# CHECK-IN PAGE
+# -------------------------------
 @app.route("/checkin", methods=["GET", "POST"])
 def checkin():
 
-    # ---------------------------
-    # HANDLE DATE (GET / POST SAFE)
-    # ---------------------------
-    def normalize_date(raw_date):
-        if not raw_date:
-            return date.today().strftime("%Y-%m-%d")
-        try:
-            if "/" in raw_date:
-                return datetime.strptime(raw_date, "%m/%d/%Y").strftime("%Y-%m-%d")
-            return raw_date
-        except:
-            return date.today().strftime("%Y-%m-%d")
+    class_date = request.args.get("class_date")
 
-    if request.method == "POST":
-        class_date = normalize_date(request.form.get("class_date"))
-    else:
-        class_date = normalize_date(request.args.get("class_date"))
+    if not class_date:
+        class_date = datetime.now().strftime("%Y-%m-%d")
 
-    # ---------------------------
-    # LOAD CLIENTS (ABC CLASS ONLY)
-    # ---------------------------
-    all_clients = get_clients_with_scores()
-
-    clients = []
-    for c in all_clients:
-        group = (c.get("group_name") or "").strip().lower()
-
-        if group == "abc class":
-            clients.append(c)
-
-    # NEVER allow empty board
-    if not clients:
-        print("⚠️ No ABC group found — loading all clients")
-        clients = all_clients
-
-    # ---------------------------
-    # SORT (LAST NAME FIRST)
-    # ---------------------------
-    clients = sorted(
-        clients,
-        key=lambda x: (
-            (x.get("last_name") or "").lower(),
-            (x.get("first_name") or "").lower(),
-            (x.get("display_name") or "").lower(),
-        )
-    )
-
-    # ---------------------------
-    # SAVE ATTENDANCE
-    # ---------------------------
     if request.method == "POST":
         attended_names = request.form.getlist("attended")
+        class_date = request.form.get("class_date")
 
-        save_attendance_for_date(
-            class_date,
-            attended_names,
-            finalize=False
-        )
+        save_attendance(class_date, attended_names)
 
         return redirect(url_for("checkin", class_date=class_date))
 
-    # ---------------------------
-    # LOAD ATTENDANCE MAP
-    # ---------------------------
-    attendance_map = get_attendance_map_for_date(class_date)
-
-    # ---------------------------
-    # RENDER PAGE
-    # ---------------------------
-   return render_template_string("""
-<!doctype html>
-<html>
-<head>
-    <title>TSHRT Daily Check-In</title>
-    <style>
-        body {
-            font-family: Arial;
-            background: #0f0f0f;
-            color: white;
-            padding: 20px;
-        }
-        h1 {
-            color: gold;
-            text-align: center;
-        }
-        .topbar {
-            text-align: center;
-            margin-bottom: 15px;
-            font-size: 18px;
-        }
-        .date-controls {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        input[type="date"] {
-            padding: 8px;
-            font-size: 16px;
-            margin-right: 10px;
-        }
-        .load-btn {
-            background: gold;
-            border: none;
-            padding: 8px 16px;
-            font-weight: bold;
-            cursor: pointer;
-            border-radius: 6px;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-        }
-        .card {
-            background: #1a1a1a;
-            border: 2px solid #333;
-            padding: 15px;
-            border-radius: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .info {
-            display: flex;
-            flex-direction: column;
-        }
-        .name {
-            font-size: 18px;
-            font-weight: bold;
-        }
-        .scores {
-            font-size: 14px;
-            color: #bbb;
-            margin-top: 4px;
-        }
-        .btn {
-            background: gold;
-            color: black;
-            border: none;
-            padding: 14px;
-            font-weight: bold;
-            border-radius: 8px;
-            cursor: pointer;
-            margin-top: 20px;
-            width: 100%;
-            font-size: 16px;
-        }
-        input[type="checkbox"] {
-            transform: scale(1.5);
-        }
-    </style>
-</head>
-<body>
-
-    <h1>TSHRT Daily Check-In</h1>
-
-    <div style="text-align:center; margin-bottom:10px;">
-        <button onclick="wakeServer()" style="
-            background:#444;
-            color:white;
-            padding:6px 12px;
-            border:none;
-            border-radius:6px;
-            cursor:pointer;
-            font-weight:bold;
-        ">
-            ⚡ Wake Server
-        </button>
-    </div>
-
-    <div class="topbar">
-        Class Date: <strong>{{ class_date }}</strong>
-    </div>
-
-    <form method="get" class="date-controls">
-        <input type="date" name="class_date" value="{{ class_date }}">
-        <button class="load-btn" type="submit">Load</button>
-    </form>
-
-    <form method="post" autocomplete="off">
-        <input type="hidden" name="class_date" value="{{ class_date }}">
-
-        <div class="grid">
-            {% for c in clients %}
-                {% set att = attendance_map.get(c.display_name, {}) %}
-                {% set attended = att.get('attended', 0) %}
-
-                <div class="card">
-                    <div class="info">
-                        <div class="name">
-                            {{ c.last_name }}, {{ c.first_name }}
-                        </div>
-                        <div class="scores">
-                            Att: {{ c.attendance_count }} |
-                            C: {{ c.current_score }} |
-                            L: {{ c.lifetime_score }}
-                        </div>
-                    </div>
-
-                    <input type="checkbox"
-                           name="attended"
-                           value="{{ c.display_name }}"
-                           {% if attended == 1 %}checked{% endif %}>
-                </div>
-            {% endfor %}
-        </div>
-
-        <button class="btn" type="submit">Save Attendance</button>
-    </form>
-
-    <script>
-    function wakeServer() {
-        fetch('/ping')
-            .then(() => alert("Server Awake"))
-            .catch(() => alert("Still waking... try again"));
-    }
-
-    // Keep server alive every 4 minutes
-    setInterval(() => {
-        fetch('/ping');
-    }, 240000);
-    </script>
-
-</body>
-</html>
-""", clients=clients, class_date=class_date, attendance_map=attendance_map)
-
-
-@app.route("/board", methods=["GET", "POST"])
-def board():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # 🔥 FILTER TO ABC CLASS ONLY
-    clients = [
-        c for c in get_clients_with_scores()
-        if c.get("group_name", "").strip().lower() == "abc class"
-    ]
-
-    print("DEBUG CLIENT COUNT (ABC ONLY):", len(clients))
-
-    # GET DATES FROM DB
-    dates = cur.execute("""
-        SELECT DISTINCT class_date
-        FROM attendance
-        ORDER BY class_date ASC
-        LIMIT 12
-    """).fetchall()
-
-    date_list = [row["class_date"] for row in dates]
-
-    # BUILD DEFAULT SCHEDULE IF EMPTY
-    if not date_list:
-        base = CHALLENGE_START
-        for i in range(20):
-            d = base.fromordinal(base.toordinal() + i)
-            if d.weekday() in ALLOWED_WEEKDAYS:
-                date_list.append(d.strftime("%Y-%m-%d"))
-
-    # HANDLE POST
-    if request.method == "POST":
-        for d in date_list:
-            attended_names = request.form.getlist(f"attended_{d}")
-            finalize = request.form.get(f"finalize_{d}") == "on"
-
-            save_attendance_for_date(d, attended_names, finalize=finalize)
-
-        return redirect(url_for("board"))
-
-    # BUILD MATRIX
-    attendance_matrix = {}
-    for d in date_list:
-        attendance_matrix[d] = get_attendance_map_for_date(d)
-
-    conn.close()
-
-        return render_template_string("""
-    <!doctype html>
-    <html>
-    <head>
-        <title>TSHRT Attendance Board</title>
-        <style>
-            body { font-family: Arial; background: #0f0f0f; color: white; padding: 20px; }
-            h1 { color: gold; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #333; padding: 8px; text-align: center; }
-            th { background: #222; color: gold; }
-            td.name { text-align: left; }
-            .locked { background: #333; }
-            .btn {
-                background: gold; color: black;
-                border: none; padding: 10px 16px;
-                font-weight: bold; border-radius: 6px;
-                cursor: pointer; margin-top: 15px;
-            }
-        </style>
-    </head>
-    <body>
-
-    <h1>TSHRT Challenge Attendance Board (ABC Class)</h1>
-
-    <form method="post">
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    {% for d in date_list %}
-                        <th>
-                            {{ d }}<br>
-                            Finalize <input type="checkbox" name="finalize_{{ d }}">
-                        </th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for c in clients %}
-                <tr>
-                    <td class="name">{{ c.display_name }}</td>
-
-                    {% for d in date_list %}
-                        {% set att = attendance_matrix[d].get(c.display_name, {}) %}
-                        {% set attended = att.get('attended', 0) %}
-                        {% set finalized = att.get('finalized', 0) %}
-
-                        <td class="{% if finalized %}locked{% endif %}">
-                            {% if finalized %}
-                                <input type="checkbox" disabled {% if attended %}checked{% endif %}>
-                            {% else %}
-                                <input type="checkbox"
-                                       name="attended_{{ d }}"
-                                       value="{{ c.display_name }}"
-                                       {% if attended %}checked{% endif %}>
-                            {% endif %}
-                        </td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <button class="btn" type="submit">Save / Finalize</button>
-    </form>
-
-    </body>
-    </html>
-    """, clients=clients, date_list=date_list, attendance_matrix=attendance_matrix)
-
-@app.route("/display")
-def display():
-    clients = sorted(
-        get_clients_with_scores(),
-        key=lambda x: (-x["lifetime_score"], x["display_name"].lower())
-    )
+    clients = get_clients()
+    attendance_map = get_attendance_map(class_date)
 
     return render_template_string("""
     <!doctype html>
     <html>
     <head>
-        <title>TSHRT Display Board</title>
-        <meta http-equiv="refresh" content="30">
-        <style>
-            body { font-family: Arial, sans-serif; background: black; color: white; padding: 20px; }
-            h1 { color: gold; text-align: center; font-size: 42px; margin-bottom: 25px; }
-            table { width: 100%; border-collapse: collapse; font-size: 24px; }
-            th, td { border: 1px solid #333; padding: 14px; text-align: left; }
-            th { background: #222; color: gold; }
-            tr:nth-child(even) { background: #111; }
-            tr:nth-child(odd) { background: #1b1b1b; }
-            .rank { width: 80px; text-align: center; font-weight: bold; }
-            .score { font-weight: bold; color: gold; }
-        </style>
+        <title>TSHRT Daily Check-In</title>
     </head>
-    <body>
-        <h1>🔥 TSHRT CHALLENGE LEADERBOARD 🔥</h1>
-        <table>
-            <thead>
-                <tr>
-                    <th class="rank">#</th>
-                    <th>Name</th>
-                    <th>Current</th>
-                    <th>Lifetime</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for c in clients %}
-                <tr>
-                    <td class="rank">{{ loop.index }}</td>
-                    <td>{{ c.display_name }}</td>
-                    <td>C: {{ c.current_score }}</td>
-                    <td class="score">L: {{ c.lifetime_score }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <body style="background:black;color:white;font-family:Arial;padding:20px;">
+
+        <h1 style="color:gold;text-align:center;">TSHRT Daily Check-In</h1>
+
+        <div style="text-align:center;margin-bottom:10px;">
+            <button onclick="wakeServer()">⚡ Wake Server</button>
+        </div>
+
+        <div style="text-align:center;margin-bottom:15px;">
+            Class Date: <strong>{{ class_date }}</strong>
+        </div>
+
+        <form method="get" style="text-align:center;margin-bottom:20px;">
+            <input type="date" name="class_date" value="{{ class_date }}">
+            <button type="submit">Load</button>
+        </form>
+
+        <form method="post">
+            <input type="hidden" name="class_date" value="{{ class_date }}">
+
+            {% for c in clients %}
+                {% set att = attendance_map.get(c.display_name, {}) %}
+                {% set attended = att.get('attended', 0) %}
+
+                <div style="margin:10px;padding:10px;border:1px solid #444;">
+                    {{ c.last_name }}, {{ c.first_name }}
+                    <input type="checkbox" name="attended"
+                           value="{{ c.display_name }}"
+                           {% if attended == 1 %}checked{% endif %}>
+                </div>
+            {% endfor %}
+
+            <button type="submit">Save Attendance</button>
+        </form>
+
+        <script>
+        function wakeServer() {
+            fetch('/ping');
+        }
+        setInterval(() => { fetch('/ping'); }, 240000);
+        </script>
+
     </body>
     </html>
-    """, clients=clients)
+    """, clients=clients, class_date=class_date, attendance_map=attendance_map)
 
+# -------------------------------
+# DEBUG
+# -------------------------------
+@app.route("/debug/roster")
+def debug_roster():
+    return {"clients": get_clients(), "count": len(get_clients()), "ok": True}
 
-# =========================================================
-# STARTUP
-# =========================================================
-init_db()
-
+# -------------------------------
+# RUN
+# -------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=10000)

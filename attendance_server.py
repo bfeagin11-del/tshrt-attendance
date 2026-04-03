@@ -486,7 +486,12 @@ def board():
     conn = get_conn()
     cur = conn.cursor()
 
-    # Get last 10 class dates (or build them if none exist)
+    # GET CLIENTS (LOCK THIS IN)
+    clients = get_clients_with_scores()
+
+    print("DEBUG CLIENT COUNT:", len(clients))  # <-- critical debug
+
+    # GET DATES
     dates = cur.execute("""
         SELECT DISTINCT class_date
         FROM attendance
@@ -496,14 +501,15 @@ def board():
 
     date_list = [row["class_date"] for row in dates]
 
-    # If no dates exist yet, build default schedule (Mon/Wed from start)
+    # Build default schedule if empty
     if not date_list:
         base = CHALLENGE_START
-        for i in range(12):
+        for i in range(20):
             d = base.fromordinal(base.toordinal() + i)
             if d.weekday() in ALLOWED_WEEKDAYS:
                 date_list.append(d.strftime("%Y-%m-%d"))
 
+    # HANDLE POST
     if request.method == "POST":
         for d in date_list:
             attended_names = request.form.getlist(f"attended_{d}")
@@ -512,15 +518,14 @@ def board():
 
         return redirect(url_for("board"))
 
-    clients = get_clients_with_scores()
-
-    # Build full attendance matrix
+    # BUILD MATRIX
     attendance_matrix = {}
     for d in date_list:
         attendance_matrix[d] = get_attendance_map_for_date(d)
 
     conn.close()
 
+    # 🔥 FORCE PASS CLIENTS INTO TEMPLATE
     return render_template_string("""
     <!doctype html>
     <html>
@@ -535,10 +540,10 @@ def board():
             td.name { text-align: left; }
             .locked { background: #333; }
             .btn {
-                background: gold; color: black; border: none;
-                padding: 10px 16px; font-weight: bold;
-                border-radius: 6px; cursor: pointer;
-                margin-top: 15px;
+                background: gold; color: black;
+                border: none; padding: 10px 16px;
+                font-weight: bold; border-radius: 6px;
+                cursor: pointer; margin-top: 15px;
             }
         </style>
     </head>
@@ -554,10 +559,7 @@ def board():
                     {% for d in date_list %}
                         <th>
                             {{ d }}<br>
-                            <label>
-                                Finalize
-                                <input type="checkbox" name="finalize_{{ d }}">
-                            </label>
+                            Finalize <input type="checkbox" name="finalize_{{ d }}">
                         </th>
                     {% endfor %}
                 </tr>

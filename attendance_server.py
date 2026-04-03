@@ -455,10 +455,13 @@ def board():
     conn = get_conn()
     cur = conn.cursor()
 
-    # GET CLIENTS
-    clients = get_clients_with_scores()
+    # 🔥 FILTER TO ABC CLASS ONLY
+    clients = [
+        c for c in get_clients_with_scores()
+        if c.get("group_name", "").strip().lower() == "abc class"
+    ]
 
-    print("DEBUG CLIENT COUNT:", len(clients))
+    print("DEBUG CLIENT COUNT (ABC ONLY):", len(clients))
 
     # GET DATES FROM DB
     dates = cur.execute("""
@@ -478,7 +481,7 @@ def board():
             if d.weekday() in ALLOWED_WEEKDAYS:
                 date_list.append(d.strftime("%Y-%m-%d"))
 
-    # HANDLE POST (SAVE + FINALIZE)
+    # HANDLE POST
     if request.method == "POST":
         for d in date_list:
             attended_names = request.form.getlist(f"attended_{d}")
@@ -488,7 +491,7 @@ def board():
 
         return redirect(url_for("board"))
 
-    # BUILD ATTENDANCE MATRIX
+    # BUILD MATRIX
     attendance_matrix = {}
     for d in date_list:
         attendance_matrix[d] = get_attendance_map_for_date(d)
@@ -518,7 +521,7 @@ def board():
     </head>
     <body>
 
-    <h1>TSHRT Challenge Attendance Board</h1>
+    <h1>TSHRT Challenge Attendance Board (ABC Class)</h1>
 
     <form method="post">
         <table>

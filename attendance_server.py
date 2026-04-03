@@ -509,17 +509,19 @@ def board():
                 date_list.append(d.strftime("%Y-%m-%d"))
 
     # HANDLE POST
-    if request.method == "POST":
-
+    # HANDLE POST
+if request.method == "POST":
     for d in date_list:
         # Get all checked names for that date
         attended_names = request.form.getlist(f"attended_{d}")
 
-        # 🔥 THIS IS THE KEY LINE
+        # Check if finalize was selected
         finalize = request.form.get(f"finalize_{d}") == "on"
 
-        # Save attendance AND finalize if checked
+        # Save attendance
         save_attendance_for_date(d, attended_names, finalize=finalize)
+
+    return redirect(url_for("board"))
 
     return redirect(url_for("board"))
 

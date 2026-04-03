@@ -88,27 +88,16 @@ def sync_roster():
     inserted = 0
 
     for c in clients:
-        # Build name
-        first = c.get("first_name", "")
-        last = c.get("last_name", "")
-        display_name = f"{first} {last}".strip()
+        display_name = c.get("display_name", "").strip()
+        client_id = c.get("client_id")
 
-        if not display_name:
+        # Skip bad data
+        if not display_name or not client_id:
             continue
 
-        # Build ID
-        client_id = f"{first}_{last}".lower()
+        snapshot = int(c.get("snapshot_score", 0))
+        baseline = int(c.get("baseline_score", 0))
 
-        # Get score
-        snapshot = 0
-        baseline = 0
-
-        tests = c.get("tests", [])
-        if tests:
-            latest = tests[-1]
-            snapshot = int(latest.get("snapshot_score", latest.get("score", 0)))
-
-        # Insert into DB
         cur.execute("""
         INSERT INTO clients (client_id, display_name, snapshot_score, baseline_score, in_challenge)
         VALUES (?, ?, ?, ?, 1)
@@ -123,8 +112,6 @@ def sync_roster():
 
     conn.commit()
     conn.close()
-
-    print(f"✅ INSERTED {inserted} CLIENTS")
 
     return jsonify({
         "ok": True,

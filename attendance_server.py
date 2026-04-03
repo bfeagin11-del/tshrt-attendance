@@ -382,77 +382,69 @@ def checkin():
     <!doctype html>
     <html>
     <head>
-        <title>TSHRT Check-In</title>
+        <title>TSHRT Daily Check-In</title>
         <style>
-            body { font-family: Arial, sans-serif; background: #101010; color: white; padding: 20px; }
-            h1 { color: gold; }
-            table { width: 100%; border-collapse: collapse; background: #1a1a1a; }
-            th, td { border: 1px solid #333; padding: 10px; text-align: left; }
-            th { background: #222; color: gold; }
-            tr:nth-child(even) { background: #151515; }
-            .btn {
-                background: gold; color: black; border: none; padding: 10px 16px;
-                font-weight: bold; border-radius: 6px; cursor: pointer;
+            body { font-family: Arial; background: #0f0f0f; color: white; padding: 20px; }
+            h1 { color: gold; text-align: center; }
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
             }
-            .locked { color: #999; font-style: italic; }
-            .topbar { margin-bottom: 15px; }
-            a { color: gold; text-decoration: none; }
+            .card {
+                background: #1a1a1a;
+                border: 2px solid #333;
+                padding: 15px;
+                border-radius: 10px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .name {
+                font-size: 18px;
+                font-weight: bold;
+            }
+            .btn {
+                background: gold;
+                color: black;
+                border: none;
+                padding: 12px 18px;
+                font-weight: bold;
+                border-radius: 8px;
+                cursor: pointer;
+                margin-top: 20px;
+                width: 100%;
+            }
+            input[type="checkbox"] {
+                transform: scale(1.5);
+            }
         </style>
     </head>
     <body>
-        <h1>TSHRT Client Check-In</h1>
 
-        <div class="topbar">
-            <form method="get">
-                <label><strong>Class Date:</strong></label>
-                <input type="date" name="class_date" value="{{ today_str }}">
-                <button class="btn" type="submit">Load</button>
-                &nbsp;&nbsp;
-                <a href="/">Home</a>
-            </form>
+    <h1>TSHRT Daily Check-In</h1>
+
+    <form method="post">
+        <input type="hidden" name="class_date" value="{{ today_str }}">
+
+        <div class="grid">
+            {% for c in clients %}
+                {% set att = attendance_map.get(c.display_name, {}) %}
+                {% set attended = att.get('attended', 0) %}
+
+                <div class="card">
+                    <div class="name">{{ c.display_name }}</div>
+                    <input type="checkbox"
+                           name="attended"
+                           value="{{ c.display_name }}"
+                           {% if attended %}checked{% endif %}>
+                </div>
+            {% endfor %}
         </div>
 
-        <form method="post">
-            <input type="hidden" name="class_date" value="{{ today_str }}">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Group</th>
-                        <th>Attend</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for c in clients %}
-                    {% set att = attendance_map.get(c.display_name, {}) %}
-                    {% set attended = att.get('attended', 0) %}
-                    {% set finalized = att.get('finalized', 0) %}
-                    <tr>
-                        <td>{{ c.display_name }}</td>
-                        <td>{{ c.group_name }}</td>
-                        <td>
-                            {% if finalized %}
-                                <input type="checkbox" disabled {% if attended %}checked{% endif %}>
-                            {% else %}
-                                <input type="checkbox" name="attended" value="{{ c.display_name }}" {% if attended %}checked{% endif %}>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if finalized %}
-                                <span class="locked">Finalized</span>
-                            {% else %}
-                                Open
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <button class="btn" type="submit">Save Attendance</button>
+    </form>
 
-            <br>
-            <button class="btn" type="submit">Save Check-In</button>
-        </form>
     </body>
     </html>
     """, clients=clients, today_str=today_str, attendance_map=attendance_map)

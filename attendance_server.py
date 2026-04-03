@@ -367,31 +367,40 @@ def debug_roster():
 
 
 @app.route("/checkin", methods=["GET", "POST"])
-@app.route("/checkin", methods=["GET", "POST"])
 def checkin():
-    today_str = request.values.get("class_date", date.today().strftime("%Y-%m-%d"))
+    # GET = user is loading/viewing a date
+    if request.method == "GET":
+        class_date = request.args.get("class_date", date.today().strftime("%Y-%m-%d"))
+    else:
+        # POST = user is saving attendance for one exact date
+        class_date = request.form.get("class_date", date.today().strftime("%Y-%m-%d"))
 
     all_clients = get_clients_with_scores()
 
-    # FILTER ABC CLASS
+    # ABC Class only, fallback to all if group tags are still incomplete
     clients = [
         c for c in all_clients
         if c.get("group_name", "").strip().lower() == "abc class"
     ]
-
-    # FALLBACK IF EMPTY
     if not clients:
         clients = all_clients
 
-    # SORT LAST NAME
-    clients = sorted(clients, key=lambda x: (x["last_name"].lower(), x["first_name"].lower()))
+    # Sort by last name, then first name
+    clients = sorted(
+        clients,
+        key=lambda x: (
+            (x.get("last_name") or "").lower(),
+            (x.get("first_name") or "").lower(),
+            (x.get("display_name") or "").lower(),
+        )
+    )
 
     if request.method == "POST":
         attended_names = request.form.getlist("attended")
-        save_attendance_for_date(today_str, attended_names, finalize=False)
-        return redirect(url_for("checkin", class_date=today_str))
+        save_attendance_for_date(class_date, attended_names, finalize=False)
+        return redirect(url_for("checkin", class_date=class_date))
 
-    attendance_map = get_attendance_map_for_date(today_str)
+    attendance_map = get_attendance_map_for_date(class_date)
 
     return render_template_string("""
     <!doctype html>
@@ -399,26 +408,30 @@ def checkin():
     <head>
         <title>TSHRT Daily Check-In</title>
         <style>
-            body { font-family: Arial; background: #0f0f0f; color: white; padding: 20px; }
-            h1 { color: gold; text-align: center; }
-
+            body {
+                font-family: Arial;
+                background: #0f0f0f;
+                color: white;
+                padding: 20px;
+            }
+            h1 {
+                color: gold;
+                text-align: center;
+            }
             .topbar {
                 text-align: center;
                 margin-bottom: 20px;
                 font-size: 18px;
             }
-
             .date-controls {
                 text-align: center;
                 margin-bottom: 20px;
             }
-
             input[type="date"] {
                 padding: 8px;
                 font-size: 16px;
                 margin-right: 10px;
             }
-
             .load-btn {
                 background: gold;
                 border: none;
@@ -427,13 +440,11 @@ def checkin():
                 cursor: pointer;
                 border-radius: 6px;
             }
-
             .grid {
                 display: grid;
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
             }
-
             .card {
                 background: #1a1a1a;
                 border: 2px solid #333;
@@ -443,22 +454,19 @@ def checkin():
                 justify-content: space-between;
                 align-items: center;
             }
-
             .info {
                 display: flex;
                 flex-direction: column;
             }
-
             .name {
                 font-size: 18px;
                 font-weight: bold;
             }
-
             .scores {
                 font-size: 14px;
                 color: #bbb;
+                margin-top: 4px;
             }
-
             .btn {
                 background: gold;
                 color: black;
@@ -470,62 +478,56 @@ def checkin():
                 margin-top: 20px;
                 width: 100%;
             }
-
             input[type="checkbox"] {
                 transform: scale(1.5);
             }
         </style>
     </head>
     <body>
+        <h1>TSHRT Daily Check-In</h1>
 
-    <h1>TSHRT Daily Check-In</h1>
-
-    <div class="topbar">
-        Class Date: <strong>{{ today_str }}</strong>
-    </div>
-
-    <!-- 🔥 DATE SELECTOR -->
-    <form method="get" class="date-controls">
-        <input type="date" name="class_date" value="{{ today_str }}">
-        <button class="load-btn" type="submit">Load</button>
-    </form>
-
-    <!-- 🔥 ATTENDANCE -->
-    <form method="post">
-        <input type="hidden" name="class_date" value="{{ today_str }}">
-
-        <div class="grid">
-            {% for c in clients %}
-                {% set att = attendance_map.get(c.display_name, {}) %}
-                {% set attended = att.get('attended', 0) %}
-
-                <div class="card">
-                    <div class="info">
-                        <div class="name">
-                            {{ c.last_name }}, {{ c.first_name }}
-                        </div>
-
-                        <div class="scores">
-                            Att: {{ c.attendance_count }} |
-                            C: {{ c.current_score }} |
-                            L: {{ c.lifetime_score }}
-                        </div>
-                    </div>
-
-                    <input type="checkbox"
-                           name="attended"
-                           value="{{ c.display_name }}"
-                           {% if attended %}checked{% endif %}>
-                </div>
-            {% endfor %}
+        <div class="topbar">
+            Class Date: <strong>{{ class_date }}</strong>
         </div>
 
-        <button class="btn" type="submit">Save Attendance</button>
-    </form>
+        <form method="get" class="date-controls">
+            <input type="date" name="class_date" value="{{ class_date }}">
+            <button class="load-btn" type="submit">Load</button>
+        </form>
 
+        <form method="post" autocomplete="off">
+            <input type="hidden" name="class_date" value="{{ class_date }}">
+
+            <div class="grid">
+                {% for c in clients %}
+                    {% set att = attendance_map.get(c.display_name, {}) %}
+                    {% set attended = att.get('attended', 0) %}
+
+                    <div class="card">
+                        <div class="info">
+                            <div class="name">
+                                {{ c.last_name }}, {{ c.first_name }}
+                            </div>
+                            <div class="scores">
+                                Att: {{ c.attendance_count }} |
+                                C: {{ c.current_score }} |
+                                L: {{ c.lifetime_score }}
+                            </div>
+                        </div>
+
+                        <input type="checkbox"
+                               name="attended"
+                               value="{{ c.display_name }}"
+                               {% if attended == 1 %}checked{% endif %}>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <button class="btn" type="submit">Save Attendance</button>
+        </form>
     </body>
     </html>
-    """, clients=clients, today_str=today_str, attendance_map=attendance_map)
+    """, clients=clients, class_date=class_date, attendance_map=attendance_map)
 
 
 @app.route("/board", methods=["GET", "POST"])

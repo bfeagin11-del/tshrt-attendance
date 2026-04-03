@@ -490,113 +490,117 @@ def checkin():
 
 @app.route("/board", methods=["GET", "POST"])
 def board():
-    class_date = request.values.get("class_date", date.today().strftime("%Y-%m-%d"))
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # Get last 10 class dates (or build them if none exist)
+    dates = cur.execute("""
+        SELECT DISTINCT class_date
+        FROM attendance
+        ORDER BY class_date ASC
+        LIMIT 12
+    """).fetchall()
+
+    date_list = [row["class_date"] for row in dates]
+
+    # If no dates exist yet, build default schedule (Mon/Wed from start)
+    if not date_list:
+        base = CHALLENGE_START
+        for i in range(12):
+            d = base.fromordinal(base.toordinal() + i)
+            if d.weekday() in ALLOWED_WEEKDAYS:
+                date_list.append(d.strftime("%Y-%m-%d"))
 
     if request.method == "POST":
-        attended_names = request.form.getlist("attended")
-        finalize = request.form.get("action") == "finalize"
-        save_attendance_for_date(class_date, attended_names, finalize=finalize)
-        return redirect(url_for("board", class_date=class_date))
+        for d in date_list:
+            attended_names = request.form.getlist(f"attended_{d}")
+            finalize = request.form.get(f"finalize_{d}") == "on"
+            save_attendance_for_date(d, attended_names, finalize=finalize)
+
+        return redirect(url_for("board"))
 
     clients = get_clients_with_scores()
-    attendance_map = get_attendance_map_for_date(class_date)
 
-    total_attended_today = sum(
-        1 for _, v in attendance_map.items() if v.get("attended", 0) == 1
-    )
+    # Build full attendance matrix
+    attendance_matrix = {}
+    for d in date_list:
+        attendance_matrix[d] = get_attendance_map_for_date(d)
+
+    conn.close()
 
     return render_template_string("""
     <!doctype html>
     <html>
     <head>
-        <title>TSHRT Coach Board</title>
+        <title>TSHRT Attendance Board</title>
         <style>
-            body { font-family: Arial, sans-serif; background: #0f0f0f; color: white; padding: 20px; }
+            body { font-family: Arial; background: #0f0f0f; color: white; padding: 20px; }
             h1 { color: gold; }
-            table { width: 100%; border-collapse: collapse; background: #1a1a1a; }
-            th, td { border: 1px solid #333; padding: 10px; text-align: left; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #333; padding: 8px; text-align: center; }
             th { background: #222; color: gold; }
-            tr:nth-child(even) { background: #151515; }
+            td.name { text-align: left; }
+            .locked { background: #333; }
             .btn {
-                background: gold; color: black; border: none; padding: 10px 16px;
-                font-weight: bold; border-radius: 6px; cursor: pointer; margin-right: 10px;
+                background: gold; color: black; border: none;
+                padding: 10px 16px; font-weight: bold;
+                border-radius: 6px; cursor: pointer;
+                margin-top: 15px;
             }
-            .locked { color: #999; font-style: italic; }
-            .good { color: #7CFC00; font-weight: bold; }
-            .meta { margin-bottom: 15px; }
-            a { color: gold; text-decoration: none; }
         </style>
     </head>
     <body>
-        <h1>TSHRT Challenge Attendance Board</h1>
 
-        <div class="meta">
-            <form method="get">
-                <label><strong>Class Date:</strong></label>
-                <input type="date" name="class_date" value="{{ class_date }}">
-                <button class="btn" type="submit">Load</button>
-                &nbsp;&nbsp;
-                <a href="/">Home</a>
-            </form>
-            <p><strong>Loaded Clients:</strong> {{ clients|length }}</p>
-            <p><strong>Checked In Today:</strong> <span class="good">{{ total_attended_today }}</span></p>
-        </div>
+    <h1>TSHRT Challenge Attendance Board</h1>
 
-        <form method="post">
-            <input type="hidden" name="class_date" value="{{ class_date }}">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Group</th>
-                        <th>Baseline</th>
-                        <th>Snapshot</th>
-                        <th>Attendance</th>
-                        <th>Current</th>
-                        <th>Lifetime</th>
-                        <th>Attend Today</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for c in clients %}
-                    {% set att = attendance_map.get(c.display_name, {}) %}
-                    {% set attended = att.get('attended', 0) %}
-                    {% set finalized = att.get('finalized', 0) %}
-                    <tr>
-                        <td>{{ c.display_name }}</td>
-                        <td>{{ c.group_name }}</td>
-                        <td>{{ c.baseline_score }}</td>
-                        <td>{{ c.snapshot_score }}</td>
-                        <td>{{ c.attendance_count }}</td>
-                        <td>{{ c.current_score }}</td>
-                        <td><strong>{{ c.lifetime_score }}</strong></td>
-                        <td>
+    <form method="post">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    {% for d in date_list %}
+                        <th>
+                            {{ d }}<br>
+                            <label>
+                                Finalize
+                                <input type="checkbox" name="finalize_{{ d }}">
+                            </label>
+                        </th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in clients %}
+                <tr>
+                    <td class="name">{{ c.display_name }}</td>
+
+                    {% for d in date_list %}
+                        {% set att = attendance_matrix[d].get(c.display_name, {}) %}
+                        {% set attended = att.get('attended', 0) %}
+                        {% set finalized = att.get('finalized', 0) %}
+
+                        <td class="{% if finalized %}locked{% endif %}">
                             {% if finalized %}
                                 <input type="checkbox" disabled {% if attended %}checked{% endif %}>
                             {% else %}
-                                <input type="checkbox" name="attended" value="{{ c.display_name }}" {% if attended %}checked{% endif %}>
+                                <input type="checkbox"
+                                       name="attended_{{ d }}"
+                                       value="{{ c.display_name }}"
+                                       {% if attended %}checked{% endif %}>
                             {% endif %}
                         </td>
-                        <td>
-                            {% if finalized %}
-                                <span class="locked">Finalized</span>
-                            {% else %}
-                                Open
-                            {% endif %}
-                        </td>
-                    </tr>
                     {% endfor %}
-                </tbody>
-            </table>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
 
-            <br>
-            <button class="btn" type="submit" name="action" value="save">Save</button>
-            <button class="btn" type="submit" name="action" value="finalize">Finalize Selected Class</button>
-        </form>
+        <button class="btn" type="submit">Save / Finalize</button>
+    </form>
+
     </body>
     </html>
-    """, clients=clients, class_date=class_date, attendance_map=attendance_map, total_attended_today=total_attended_today)
+    """, clients=clients, date_list=date_list, attendance_matrix=attendance_matrix)
 
 
 @app.route("/display")

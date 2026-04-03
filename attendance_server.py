@@ -217,3 +217,35 @@ def debug():
 # ------------------ RUN ------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+# ==============================
+# SAFE READ-ONLY DEBUG ROUTE
+# ==============================
+
+@app.route("/debug/roster", methods=["GET"])
+def debug_roster():
+    import json
+    import os
+
+    try:
+        file_path = "roster_data.json"
+
+        if not os.path.exists(file_path):
+            return {
+                "ok": False,
+                "error": "roster_data.json not found"
+            }
+
+        with open(file_path, "r") as f:
+            data = json.load(f)
+
+        return {
+            "ok": True,
+            "count": len(data),
+            "sample": data[:5]  # first 5 only
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)
+        }

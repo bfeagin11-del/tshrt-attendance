@@ -287,7 +287,7 @@ def home():
     </html>
     """, clients=clients)
 
-
+print("🔥🔥🔥 NEW VERSION LOADED 🔥🔥🔥")
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     incoming = request.get_json(silent=True)

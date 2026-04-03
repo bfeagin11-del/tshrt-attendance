@@ -485,12 +485,12 @@ def board():
     conn = get_conn()
     cur = conn.cursor()
 
-    # GET CLIENTS (LOCK THIS IN)
+    # GET CLIENTS
     clients = get_clients_with_scores()
 
-    print("DEBUG CLIENT COUNT:", len(clients))  # <-- critical debug
+    print("DEBUG CLIENT COUNT:", len(clients))
 
-    # GET DATES
+    # GET DATES FROM DB
     dates = cur.execute("""
         SELECT DISTINCT class_date
         FROM attendance
@@ -500,7 +500,7 @@ def board():
 
     date_list = [row["class_date"] for row in dates]
 
-    # Build default schedule if empty
+    # BUILD DEFAULT SCHEDULE IF EMPTY
     if not date_list:
         base = CHALLENGE_START
         for i in range(20):
@@ -508,31 +508,23 @@ def board():
             if d.weekday() in ALLOWED_WEEKDAYS:
                 date_list.append(d.strftime("%Y-%m-%d"))
 
-    # HANDLE POST
-    # HANDLE POST
-# HANDLE POST
-    # HANDLE POST
+    # HANDLE POST (SAVE + FINALIZE)
     if request.method == "POST":
         for d in date_list:
-            # Get all checked names for that date
             attended_names = request.form.getlist(f"attended_{d}")
-
-            # Check if finalize was selected
             finalize = request.form.get(f"finalize_{d}") == "on"
 
-            # Save attendance
             save_attendance_for_date(d, attended_names, finalize=finalize)
 
         return redirect(url_for("board"))
-    return redirect(url_for("board"))
-    # BUILD MATRIX
+
+    # BUILD ATTENDANCE MATRIX
     attendance_matrix = {}
     for d in date_list:
         attendance_matrix[d] = get_attendance_map_for_date(d)
 
     conn.close()
 
-    # 🔥 FORCE PASS CLIENTS INTO TEMPLATE
     return render_template_string("""
     <!doctype html>
     <html>
@@ -603,7 +595,6 @@ def board():
     </body>
     </html>
     """, clients=clients, date_list=date_list, attendance_matrix=attendance_matrix)
-
 
 @app.route("/display")
 def display():

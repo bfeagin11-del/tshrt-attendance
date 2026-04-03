@@ -200,52 +200,43 @@ def get_attendance_map_for_date(class_date):
 
 
 def save_attendance_for_date(class_date, attended_names, finalize=False):
-    conn = get_conn()
+    import sqlite3
+
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    clients = cur.execute("""
-        SELECT display_name
-        FROM clients
-        ORDER BY display_name COLLATE NOCASE ASC
-    """).fetchall()
+    # -------------------------
+    # CLEAR EXISTING FOR DATE
+    # -------------------------
+    cur.execute("DELETE FROM attendance WHERE class_date = ?", (class_date,))
 
-    attended_set = set(attended_names or [])
+    # -------------------------
+    # LOAD ALL CLIENTS
+    # -------------------------
+    clients = get_clients_with_scores()
 
-    for client in clients:
-        name = client["display_name"]
-        attended = 1 if name in attended_set else 0
+    for c in clients:
+        name = c.get("display_name")
 
-        existing = cur.execute("""
-            SELECT id, finalized
-            FROM attendance
-            WHERE display_name = ? AND class_date = ?
-        """, (name, class_date)).fetchone()
+        attended = 1 if name in attended_names else 0
 
-        if existing:
-            if existing["finalized"] == 1:
-                # Locked record - do not overwrite
-                continue
+        # SAVE ATTENDANCE RECORD
+        cur.execute("""
+            INSERT INTO attendance (class_date, display_name, attended)
+            VALUES (?, ?, ?)
+        """, (class_date, name, attended))
 
+        # -------------------------
+        # UPDATE SCORES (KEY FIX)
+        # -------------------------
+        if attended == 1:
             cur.execute("""
-                UPDATE attendance
-                SET attended = ?, finalized = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE display_name = ? AND class_date = ?
-            """, (
-                attended,
-                1 if finalize else 0,
-                name,
-                class_date
-            ))
-        else:
-            cur.execute("""
-                INSERT INTO attendance (display_name, class_date, attended, finalized)
-                VALUES (?, ?, ?, ?)
-            """, (
-                name,
-                class_date,
-                attended,
-                1 if finalize else 0
-            ))
+                UPDATE clients
+                SET attendance_count = COALESCE(attendance_count, 0) + 1,
+                    current_score = COALESCE(current_score, 0) + 1,
+                    lifetime_score = COALESCE(lifetime_score, 0) + 1
+                WHERE display_name = ?
+            """, (name,))
 
     conn.commit()
     conn.close()

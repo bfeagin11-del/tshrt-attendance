@@ -290,10 +290,17 @@ def home():
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    incoming = request.get_json(force=True)
+    incoming = request.get_json(silent=True)
 
-    if not incoming:
-        return jsonify({"ok": False, "error": "No data received"}), 400
+    print("=== SYNC DEBUG ===")
+    print("RAW INCOMING TYPE:", type(incoming))
+    print("RAW INCOMING:", incoming)
+
+    if incoming is None:
+        return jsonify({"ok": False, "error": "No JSON received"}), 400
+
+    if isinstance(incoming, dict):
+        print("DICT KEYS:", list(incoming.keys()))
 
     # Accept both formats
     if isinstance(incoming, dict) and "clients" in incoming:
@@ -303,6 +310,8 @@ def sync_roster():
     else:
         return jsonify({"ok": False, "error": "Invalid format"}), 400
 
+    print("CLIENT COUNT RECEIVED:", len(raw_clients))
+
     conn = get_conn()
     cur = conn.cursor()
 
@@ -311,12 +320,14 @@ def sync_roster():
     inserted = 0
 
     for raw in raw_clients:
+        print("RAW CLIENT:", raw)
+
         if not isinstance(raw, dict):
             continue
 
-        # 🔥 FORCE NAME BUILD (no skipping)
         first = str(raw.get("first_name", "")).strip()
         last = str(raw.get("last_name", "")).strip()
+
         display = str(
             raw.get("display_name")
             or raw.get("name")
@@ -324,50 +335,25 @@ def sync_roster():
             or f"{first} {last}"
         ).strip()
 
-        # If STILL no name, skip
+        print("PARSED NAME:", display)
+
         if not display:
             continue
 
-        try:
-            baseline = int(float(raw.get("baseline_score", 0)))
-        except:
-            baseline = 0
-
-        try:
-            snapshot = int(float(raw.get("snapshot_score", 0)))
-        except:
-            snapshot = 0
-
-        group = str(raw.get("group_name") or raw.get("group") or "")
-
         cur.execute("""
-            INSERT INTO clients (
-                display_name,
-                first_name,
-                last_name,
-                baseline_score,
-                snapshot_score,
-                group_name
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            display,
-            first,
-            last,
-            baseline,
-            snapshot,
-            group
-        ))
+            INSERT INTO clients (display_name, first_name, last_name)
+            VALUES (?, ?, ?)
+        """, (display, first, last))
 
         inserted += 1
 
     conn.commit()
     conn.close()
 
-    return jsonify({
-        "ok": True,
-        "inserted": inserted
-    })
+    print("INSERTED:", inserted)
+    print("==================")
+
+    return jsonify({"ok": True, "inserted": inserted})
 
 
 @app.route("/debug/roster")

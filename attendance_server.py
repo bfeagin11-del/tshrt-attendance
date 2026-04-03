@@ -370,19 +370,19 @@ def debug_roster():
 def checkin():
     today_str = request.values.get("class_date", date.today().strftime("%Y-%m-%d"))
 
-    # 🔥 FILTER TO ABC CLASS ONLY
     all_clients = get_clients_with_scores()
 
-clients = [
-    c for c in all_clients
-    if c.get("group_name", "").strip().lower() == "abc class"
-]
+    # FILTER ABC CLASS
+    clients = [
+        c for c in all_clients
+        if c.get("group_name", "").strip().lower() == "abc class"
+    ]
 
-# 🔥 FALLBACK — IF NO GROUPS FOUND, SHOW ALL (temporary safety)
-if not clients:
-    clients = all_clients
+    # FALLBACK IF GROUP EMPTY
+    if not clients:
+        clients = all_clients
 
-    # SORT BY LAST NAME
+    # SORT LAST NAME
     clients = sorted(clients, key=lambda x: (x["last_name"].lower(), x["first_name"].lower()))
 
     if request.method == "POST":

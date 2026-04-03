@@ -523,8 +523,6 @@ if request.method == "POST":
 
     return redirect(url_for("board"))
 
-    return redirect(url_for("board"))
-
     # BUILD MATRIX
     attendance_matrix = {}
     for d in date_list:

@@ -439,135 +439,162 @@ def checkin():
     # ---------------------------
     # RENDER PAGE
     # ---------------------------
-    return render_template_string("""
-    <!doctype html>
-    <html>
-    <head>
-        <title>TSHRT Daily Check-In</title>
-        <style>
-            body {
-                font-family: Arial;
-                background: #0f0f0f;
-                color: white;
-                padding: 20px;
-            }
-            h1 {
-                color: gold;
-                text-align: center;
-            }
-            .topbar {
-                text-align: center;
-                margin-bottom: 15px;
-                font-size: 18px;
-            }
-            .date-controls {
-                text-align: center;
-                margin-bottom: 20px;
-            }
-            input[type="date"] {
-                padding: 8px;
-                font-size: 16px;
-                margin-right: 10px;
-            }
-            .load-btn {
-                background: gold;
-                border: none;
-                padding: 8px 16px;
-                font-weight: bold;
-                cursor: pointer;
-                border-radius: 6px;
-            }
-            .grid {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 12px;
-            }
-            .card {
-                background: #1a1a1a;
-                border: 2px solid #333;
-                padding: 15px;
-                border-radius: 10px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .info {
-                display: flex;
-                flex-direction: column;
-            }
-            .name {
-                font-size: 18px;
-                font-weight: bold;
-            }
-            .scores {
-                font-size: 14px;
-                color: #bbb;
-                margin-top: 4px;
-            }
-            .btn {
-                background: gold;
-                color: black;
-                border: none;
-                padding: 14px;
-                font-weight: bold;
-                border-radius: 8px;
-                cursor: pointer;
-                margin-top: 20px;
-                width: 100%;
-                font-size: 16px;
-            }
-            input[type="checkbox"] {
-                transform: scale(1.5);
-            }
-        </style>
-    </head>
-    <body>
+   return render_template_string("""
+<!doctype html>
+<html>
+<head>
+    <title>TSHRT Daily Check-In</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f0f0f;
+            color: white;
+            padding: 20px;
+        }
+        h1 {
+            color: gold;
+            text-align: center;
+        }
+        .topbar {
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .date-controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        input[type="date"] {
+            padding: 8px;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        .load-btn {
+            background: gold;
+            border: none;
+            padding: 8px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .card {
+            background: #1a1a1a;
+            border: 2px solid #333;
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .info {
+            display: flex;
+            flex-direction: column;
+        }
+        .name {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .scores {
+            font-size: 14px;
+            color: #bbb;
+            margin-top: 4px;
+        }
+        .btn {
+            background: gold;
+            color: black;
+            border: none;
+            padding: 14px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+            width: 100%;
+            font-size: 16px;
+        }
+        input[type="checkbox"] {
+            transform: scale(1.5);
+        }
+    </style>
+</head>
+<body>
 
-        <h1>TSHRT Daily Check-In</h1>
+    <h1>TSHRT Daily Check-In</h1>
 
-        <div class="topbar">
-            Class Date: <strong>{{ class_date }}</strong>
+    <div style="text-align:center; margin-bottom:10px;">
+        <button onclick="wakeServer()" style="
+            background:#444;
+            color:white;
+            padding:6px 12px;
+            border:none;
+            border-radius:6px;
+            cursor:pointer;
+            font-weight:bold;
+        ">
+            ⚡ Wake Server
+        </button>
+    </div>
+
+    <div class="topbar">
+        Class Date: <strong>{{ class_date }}</strong>
+    </div>
+
+    <form method="get" class="date-controls">
+        <input type="date" name="class_date" value="{{ class_date }}">
+        <button class="load-btn" type="submit">Load</button>
+    </form>
+
+    <form method="post" autocomplete="off">
+        <input type="hidden" name="class_date" value="{{ class_date }}">
+
+        <div class="grid">
+            {% for c in clients %}
+                {% set att = attendance_map.get(c.display_name, {}) %}
+                {% set attended = att.get('attended', 0) %}
+
+                <div class="card">
+                    <div class="info">
+                        <div class="name">
+                            {{ c.last_name }}, {{ c.first_name }}
+                        </div>
+                        <div class="scores">
+                            Att: {{ c.attendance_count }} |
+                            C: {{ c.current_score }} |
+                            L: {{ c.lifetime_score }}
+                        </div>
+                    </div>
+
+                    <input type="checkbox"
+                           name="attended"
+                           value="{{ c.display_name }}"
+                           {% if attended == 1 %}checked{% endif %}>
+                </div>
+            {% endfor %}
         </div>
 
-        <form method="get" class="date-controls">
-            <input type="date" name="class_date" value="{{ class_date }}">
-            <button class="load-btn" type="submit">Load</button>
-        </form>
+        <button class="btn" type="submit">Save Attendance</button>
+    </form>
 
-        <form method="post" autocomplete="off">
-            <input type="hidden" name="class_date" value="{{ class_date }}">
+    <script>
+    function wakeServer() {
+        fetch('/ping')
+            .then(() => alert("Server Awake"))
+            .catch(() => alert("Still waking... try again"));
+    }
 
-            <div class="grid">
-                {% for c in clients %}
-                    {% set att = attendance_map.get(c.display_name, {}) %}
-                    {% set attended = att.get('attended', 0) %}
+    // Keep server alive every 4 minutes
+    setInterval(() => {
+        fetch('/ping');
+    }, 240000);
+    </script>
 
-                    <div class="card">
-                        <div class="info">
-                            <div class="name">
-                                {{ c.last_name }}, {{ c.first_name }}
-                            </div>
-                            <div class="scores">
-                                Att: {{ c.attendance_count }} |
-                                C: {{ c.current_score }} |
-                                L: {{ c.lifetime_score }}
-                            </div>
-                        </div>
-
-                        <input type="checkbox"
-                               name="attended"
-                               value="{{ c.display_name }}"
-                               {% if attended == 1 %}checked{% endif %}>
-                    </div>
-                {% endfor %}
-            </div>
-
-            <button class="btn" type="submit">Save Attendance</button>
-        </form>
-
-    </body>
-    </html>
-    """, clients=clients, class_date=class_date, attendance_map=attendance_map)
+</body>
+</html>
+""", clients=clients, class_date=class_date, attendance_map=attendance_map)
 
 
 @app.route("/board", methods=["GET", "POST"])

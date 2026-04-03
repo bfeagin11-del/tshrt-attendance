@@ -510,6 +510,7 @@ def board():
 
     # HANDLE POST
     # HANDLE POST
+# HANDLE POST
 if request.method == "POST":
     for d in date_list:
         # Get all checked names for that date
@@ -522,7 +523,6 @@ if request.method == "POST":
         save_attendance_for_date(d, attended_names, finalize=finalize)
 
     return redirect(url_for("board"))
-
     # BUILD MATRIX
     attendance_matrix = {}
     for d in date_list:

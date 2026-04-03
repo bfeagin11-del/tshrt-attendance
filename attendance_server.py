@@ -3,35 +3,32 @@ import sqlite3
 from datetime import datetime
 
 app = Flask(__name__)
-
 DB_FILE = "attendance.db"
 
-# -------------------------------
-# INIT DB
-# -------------------------------
+# ------------------ INIT DB ------------------
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS clients (
-            display_name TEXT PRIMARY KEY,
-            first_name TEXT,
-            last_name TEXT,
-            group_name TEXT,
-            attendance_count INTEGER DEFAULT 0,
-            current_score INTEGER DEFAULT 0,
-            lifetime_score INTEGER DEFAULT 0
-        )
+    CREATE TABLE IF NOT EXISTS clients (
+        display_name TEXT PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        group_name TEXT,
+        attendance_count INTEGER DEFAULT 0,
+        current_score INTEGER DEFAULT 0,
+        lifetime_score INTEGER DEFAULT 0
+    )
     """)
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            class_date TEXT,
-            display_name TEXT,
-            attended INTEGER
-        )
+    CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_date TEXT,
+        display_name TEXT,
+        attended INTEGER
+    )
     """)
 
     conn.commit()
@@ -39,23 +36,15 @@ def init_db():
 
 init_db()
 
-# -------------------------------
-# PING (WAKE SERVER)
-# -------------------------------
+# ------------------ PING ------------------
 @app.route("/ping")
 def ping():
     return {"status": "awake"}
 
-# -------------------------------
-# SYNC ROSTER
-# -------------------------------
+# ------------------ SYNC ------------------
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
     data = request.get_json()
-
-    if not data:
-        return jsonify({"ok": False, "error": "No data"}), 400
-
     clients = data.get("clients", data)
 
     conn = sqlite3.connect(DB_FILE)
@@ -63,23 +52,13 @@ def sync_roster():
 
     cur.execute("DELETE FROM clients")
 
-    inserted = 0
-
     for c in clients:
         name = c.get("display_name")
         if not name:
             continue
 
         cur.execute("""
-            INSERT INTO clients (
-                display_name,
-                first_name,
-                last_name,
-                group_name,
-                attendance_count,
-                current_score,
-                lifetime_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO clients VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
             name,
             c.get("first_name", ""),
@@ -90,16 +69,11 @@ def sync_roster():
             c.get("lifetime_score", 0),
         ))
 
-        inserted += 1
-
     conn.commit()
     conn.close()
+    return {"ok": True}
 
-    return jsonify({"ok": True, "inserted": inserted})
-
-# -------------------------------
-# GET CLIENTS
-# -------------------------------
+# ------------------ GET CLIENTS ------------------
 def get_clients():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -108,160 +82,138 @@ def get_clients():
     rows = cur.fetchall()
     conn.close()
 
-    clients = []
-    for r in rows:
-        clients.append({
-            "display_name": r[0],
-            "first_name": r[1],
-            "last_name": r[2],
-            "group_name": r[3],
-            "attendance_count": r[4],
-            "current_score": r[5],
-            "lifetime_score": r[6],
-        })
+    return [{
+        "display_name": r[0],
+        "first_name": r[1],
+        "last_name": r[2],
+        "group_name": r[3],
+        "attendance_count": r[4],
+        "current_score": r[5],
+        "lifetime_score": r[6],
+    } for r in rows]
 
-    return clients
-
-# -------------------------------
-# GET ATTENDANCE MAP
-# -------------------------------
-def get_attendance_map(class_date):
+# ------------------ GET ATTENDANCE ------------------
+def get_attendance_map(date):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT display_name, attended
-        FROM attendance
-        WHERE class_date = ?
-    """, (class_date,))
-
+    cur.execute("SELECT display_name, attended FROM attendance WHERE class_date = ?", (date,))
     rows = cur.fetchall()
     conn.close()
 
-    return {r[0]: {"attended": r[1]} for r in rows}
+    return {r[0]: r[1] for r in rows}
 
-# -------------------------------
-# SAVE ATTENDANCE (NO DOUBLE SCORE)
-# -------------------------------
-def save_attendance(class_date, attended_names):
+# ------------------ SAVE ATTENDANCE ------------------
+def save_attendance(date, names):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    # check if already scored
-    cur.execute("""
-        SELECT COUNT(*) FROM attendance
-        WHERE class_date = ? AND attended = 1
-    """, (class_date,))
+    # prevent double scoring
+    cur.execute("SELECT COUNT(*) FROM attendance WHERE class_date = ? AND attended = 1", (date,))
     already_scored = cur.fetchone()[0] > 0
 
-    cur.execute("DELETE FROM attendance WHERE class_date = ?", (class_date,))
+    cur.execute("DELETE FROM attendance WHERE class_date = ?", (date,))
 
     clients = get_clients()
 
     for c in clients:
         name = c["display_name"]
-        attended = 1 if name in attended_names else 0
+        attended = 1 if name in names else 0
 
-        cur.execute("""
-            INSERT INTO attendance (class_date, display_name, attended)
-            VALUES (?, ?, ?)
-        """, (class_date, name, attended))
+        cur.execute("INSERT INTO attendance (class_date, display_name, attended) VALUES (?, ?, ?)",
+                    (date, name, attended))
 
-        if attended == 1 and not already_scored:
+        if attended and not already_scored:
             cur.execute("""
-                UPDATE clients
-                SET attendance_count = attendance_count + 1,
-                    current_score = current_score + 1,
-                    lifetime_score = lifetime_score + 1
-                WHERE display_name = ?
+            UPDATE clients
+            SET attendance_count = attendance_count + 1,
+                current_score = current_score + 1,
+                lifetime_score = lifetime_score + 1
+            WHERE display_name = ?
             """, (name,))
 
     conn.commit()
     conn.close()
 
-# -------------------------------
-# CHECK-IN PAGE
-# -------------------------------
+# ------------------ CHECKIN ------------------
 @app.route("/checkin", methods=["GET", "POST"])
 def checkin():
 
-    class_date = request.args.get("class_date")
-
-    if not class_date:
-        class_date = datetime.now().strftime("%Y-%m-%d")
+    date = request.args.get("class_date") or datetime.now().strftime("%Y-%m-%d")
 
     if request.method == "POST":
-        attended_names = request.form.getlist("attended")
-        class_date = request.form.get("class_date")
+        names = request.form.getlist("attended")
+        date = request.form.get("class_date")
 
-        save_attendance(class_date, attended_names)
+        save_attendance(date, names)
 
-        return redirect(url_for("checkin", class_date=class_date))
+        return redirect(url_for("checkin", class_date=date, saved=1))
 
     clients = get_clients()
-    attendance_map = get_attendance_map(class_date)
+    attendance = get_attendance_map(date)
 
     return render_template_string("""
-    <!doctype html>
-    <html>
-    <head>
-        <title>TSHRT Daily Check-In</title>
-    </head>
-    <body style="background:black;color:white;font-family:Arial;padding:20px;">
+<!doctype html>
+<html>
+<head>
+<title>TSHRT Check-In</title>
+</head>
+<body style="background:black;color:white;font-family:Arial;padding:20px;">
 
-        <h1 style="color:gold;text-align:center;">TSHRT Daily Check-In</h1>
+<h1 style="color:gold;text-align:center;">TSHRT Daily Check-In</h1>
 
-        <div style="text-align:center;margin-bottom:10px;">
-            <button onclick="wakeServer()">⚡ Wake Server</button>
-        </div>
+<div style="text-align:center;margin-bottom:10px;">
+<button onclick="wake()">⚡ Wake Server</button>
+</div>
 
-        <div style="text-align:center;margin-bottom:15px;">
-            Class Date: <strong>{{ class_date }}</strong>
-        </div>
+{% if request.args.get('saved') %}
+<div style="color:lime;text-align:center;">Saved Successfully</div>
+{% endif %}
 
-        <form method="get" style="text-align:center;margin-bottom:20px;">
-            <input type="date" name="class_date" value="{{ class_date }}">
-            <button type="submit">Load</button>
-        </form>
+<div style="text-align:center;">Date: {{date}}</div>
 
-        <form method="post">
-            <input type="hidden" name="class_date" value="{{ class_date }}">
+<form method="get" style="text-align:center;margin:10px;">
+<input type="date" name="class_date" value="{{date}}">
+<button>Load</button>
+</form>
 
-            {% for c in clients %}
-                {% set att = attendance_map.get(c.display_name, {}) %}
-                {% set attended = att.get('attended', 0) %}
+<form method="post">
+<input type="hidden" name="class_date" value="{{date}}">
 
-                <div style="margin:10px;padding:10px;border:1px solid #444;">
-                    {{ c.last_name }}, {{ c.first_name }}
-                    <input type="checkbox" name="attended"
-                           value="{{ c.display_name }}"
-                           {% if attended == 1 %}checked{% endif %}>
-                </div>
-            {% endfor %}
+{% for c in clients %}
+<div style="margin:5px;border-bottom:1px solid #444;">
+{{c.last_name}}, {{c.first_name}}
+<input type="checkbox" name="attended" value="{{c.display_name}}"
+{% if attendance.get(c.display_name) == 1 %}checked{% endif %}>
+</div>
+{% endfor %}
 
-            <button type="submit">Save Attendance</button>
-        </form>
+<button type="button" onclick="save()">Save Attendance</button>
+</form>
 
-        <script>
-        function wakeServer() {
-            fetch('/ping');
-        }
-        setInterval(() => { fetch('/ping'); }, 240000);
-        </script>
+<script>
+async function save(){
+    await fetch('/ping');
+    await new Promise(r=>setTimeout(r,1200));
+    document.forms[1].submit();
+}
 
-    </body>
-    </html>
-    """, clients=clients, class_date=class_date, attendance_map=attendance_map)
+function wake(){
+    fetch('/ping');
+}
 
-# -------------------------------
-# DEBUG
-# -------------------------------
-@app.route("/debug/roster")
-def debug_roster():
-    return {"clients": get_clients(), "count": len(get_clients()), "ok": True}
+setInterval(()=>fetch('/ping'),240000);
+</script>
 
-# -------------------------------
-# RUN
-# -------------------------------
+</body>
+</html>
+""", clients=clients, attendance=attendance, date=date)
+
+# ------------------ DEBUG ------------------
+@app.route("/debug")
+def debug():
+    return {"clients": get_clients()}
+
+# ------------------ RUN ------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)

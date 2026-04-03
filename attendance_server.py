@@ -370,12 +370,20 @@ def debug_roster():
 def checkin():
     today_str = request.values.get("class_date", date.today().strftime("%Y-%m-%d"))
 
+    # 🔥 FILTER TO ABC CLASS ONLY
+    clients = [
+        c for c in get_clients_with_scores()
+        if c.get("group_name", "").strip().lower() == "abc class"
+    ]
+
+    # SORT BY LAST NAME
+    clients = sorted(clients, key=lambda x: (x["last_name"].lower(), x["first_name"].lower()))
+
     if request.method == "POST":
         attended_names = request.form.getlist("attended")
         save_attendance_for_date(today_str, attended_names, finalize=False)
         return redirect(url_for("checkin", class_date=today_str))
 
-    clients = get_clients_with_scores()
     attendance_map = get_attendance_map_for_date(today_str)
 
     return render_template_string("""
@@ -386,11 +394,19 @@ def checkin():
         <style>
             body { font-family: Arial; background: #0f0f0f; color: white; padding: 20px; }
             h1 { color: gold; text-align: center; }
+
+            .topbar {
+                text-align: center;
+                margin-bottom: 20px;
+                font-size: 18px;
+            }
+
             .grid {
                 display: grid;
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
             }
+
             .card {
                 background: #1a1a1a;
                 border: 2px solid #333;
@@ -400,21 +416,34 @@ def checkin():
                 justify-content: space-between;
                 align-items: center;
             }
+
+            .info {
+                display: flex;
+                flex-direction: column;
+            }
+
             .name {
                 font-size: 18px;
                 font-weight: bold;
             }
+
+            .scores {
+                font-size: 14px;
+                color: #bbb;
+            }
+
             .btn {
                 background: gold;
                 color: black;
                 border: none;
-                padding: 12px 18px;
+                padding: 12px;
                 font-weight: bold;
                 border-radius: 8px;
                 cursor: pointer;
                 margin-top: 20px;
                 width: 100%;
             }
+
             input[type="checkbox"] {
                 transform: scale(1.5);
             }
@@ -423,6 +452,10 @@ def checkin():
     <body>
 
     <h1>TSHRT Daily Check-In</h1>
+
+    <div class="topbar">
+        Class Date: <strong>{{ today_str }}</strong>
+    </div>
 
     <form method="post">
         <input type="hidden" name="class_date" value="{{ today_str }}">
@@ -433,7 +466,18 @@ def checkin():
                 {% set attended = att.get('attended', 0) %}
 
                 <div class="card">
-                    <div class="name">{{ c.display_name }}</div>
+                    <div class="info">
+                        <div class="name">
+                            {{ c.last_name }}, {{ c.first_name }}
+                        </div>
+
+                        <div class="scores">
+                            Att: {{ c.attendance_count }} |
+                            C: {{ c.current_score }} |
+                            L: {{ c.lifetime_score }}
+                        </div>
+                    </div>
+
                     <input type="checkbox"
                            name="attended"
                            value="{{ c.display_name }}"

@@ -393,13 +393,16 @@ def checkin():
     # ---------------------------
     all_clients = get_clients_with_scores()
 
-    clients = [
-        c for c in all_clients
-        if c.get("group_name", "").strip().lower() == "abc class"
-    ]
+    clients = []
+    for c in all_clients:
+        group = (c.get("group_name") or "").strip().lower()
 
-    # Fallback if group not set yet
+        if group == "abc class":
+            clients.append(c)
+
+    # NEVER allow empty board
     if not clients:
+        print("⚠️ No ABC group found — loading all clients")
         clients = all_clients
 
     # ---------------------------

@@ -366,26 +366,46 @@ def debug_roster():
     })
 
 
+from datetime import datetime, date
+
 @app.route("/checkin", methods=["GET", "POST"])
 def checkin():
-    # GET = user is loading/viewing a date
-    if request.method == "GET":
-        class_date = request.args.get("class_date", date.today().strftime("%Y-%m-%d"))
-    else:
-        # POST = user is saving attendance for one exact date
-        class_date = request.form.get("class_date", date.today().strftime("%Y-%m-%d"))
 
+    # ---------------------------
+    # HANDLE DATE (GET / POST SAFE)
+    # ---------------------------
+    def normalize_date(raw_date):
+        if not raw_date:
+            return date.today().strftime("%Y-%m-%d")
+        try:
+            if "/" in raw_date:
+                return datetime.strptime(raw_date, "%m/%d/%Y").strftime("%Y-%m-%d")
+            return raw_date
+        except:
+            return date.today().strftime("%Y-%m-%d")
+
+    if request.method == "POST":
+        class_date = normalize_date(request.form.get("class_date"))
+    else:
+        class_date = normalize_date(request.args.get("class_date"))
+
+    # ---------------------------
+    # LOAD CLIENTS (ABC CLASS ONLY)
+    # ---------------------------
     all_clients = get_clients_with_scores()
 
-    # ABC Class only, fallback to all if group tags are still incomplete
     clients = [
         c for c in all_clients
         if c.get("group_name", "").strip().lower() == "abc class"
     ]
+
+    # Fallback if group not set yet
     if not clients:
         clients = all_clients
 
-    # Sort by last name, then first name
+    # ---------------------------
+    # SORT (LAST NAME FIRST)
+    # ---------------------------
     clients = sorted(
         clients,
         key=lambda x: (
@@ -395,13 +415,28 @@ def checkin():
         )
     )
 
+    # ---------------------------
+    # SAVE ATTENDANCE
+    # ---------------------------
     if request.method == "POST":
         attended_names = request.form.getlist("attended")
-        save_attendance_for_date(class_date, attended_names, finalize=False)
+
+        save_attendance_for_date(
+            class_date,
+            attended_names,
+            finalize=False
+        )
+
         return redirect(url_for("checkin", class_date=class_date))
 
+    # ---------------------------
+    # LOAD ATTENDANCE MAP
+    # ---------------------------
     attendance_map = get_attendance_map_for_date(class_date)
 
+    # ---------------------------
+    # RENDER PAGE
+    # ---------------------------
     return render_template_string("""
     <!doctype html>
     <html>
@@ -420,7 +455,7 @@ def checkin():
             }
             .topbar {
                 text-align: center;
-                margin-bottom: 20px;
+                margin-bottom: 15px;
                 font-size: 18px;
             }
             .date-controls {
@@ -471,12 +506,13 @@ def checkin():
                 background: gold;
                 color: black;
                 border: none;
-                padding: 12px;
+                padding: 14px;
                 font-weight: bold;
                 border-radius: 8px;
                 cursor: pointer;
                 margin-top: 20px;
                 width: 100%;
+                font-size: 16px;
             }
             input[type="checkbox"] {
                 transform: scale(1.5);
@@ -484,6 +520,7 @@ def checkin():
         </style>
     </head>
     <body>
+
         <h1>TSHRT Daily Check-In</h1>
 
         <div class="topbar">
@@ -525,6 +562,7 @@ def checkin():
 
             <button class="btn" type="submit">Save Attendance</button>
         </form>
+
     </body>
     </html>
     """, clients=clients, class_date=class_date, attendance_map=attendance_map)

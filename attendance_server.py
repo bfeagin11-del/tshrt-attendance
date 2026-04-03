@@ -645,7 +645,7 @@ def board():
 
     conn.close()
 
-    return render_template_string("""
+        return render_template_string("""
     <!doctype html>
     <html>
     <head>

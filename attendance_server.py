@@ -83,46 +83,39 @@ def safe_int(value, default=0):
 
 
 def normalize_client(raw):
-    """
-    Accepts flexible client payloads and returns a normalized record.
-    """
+    # Try multiple naming formats (this is the fix)
     display_name = str(
         raw.get("display_name")
         or raw.get("name")
         or raw.get("client_name")
-        or ""
+        or f"{raw.get('first_name','')} {raw.get('last_name','')}"
     ).strip()
-
-    first_name = str(raw.get("first_name") or "").strip()
-    last_name = str(raw.get("last_name") or "").strip()
-
-    # If no display_name but first/last exist, build one
-    if not display_name:
-        built = f"{first_name} {last_name}".strip()
-        display_name = built
 
     if not display_name:
         return None
 
-    baseline_score = safe_int(
-        raw.get("baseline_score", raw.get("life_score", raw.get("lifetime_base", 0)))
-    )
-    snapshot_score = safe_int(
-        raw.get("snapshot_score", raw.get("current_score_base", raw.get("snap_score", 0)))
-    )
-    group_name = str(
-        raw.get("group_name", raw.get("group", raw.get("team", "")))
-    ).strip()
+    def safe_int(val):
+        try:
+            return int(float(val))
+        except:
+            return 0
 
     return {
         "display_name": display_name,
-        "first_name": first_name,
-        "last_name": last_name,
-        "baseline_score": baseline_score,
-        "snapshot_score": snapshot_score,
-        "group_name": group_name,
+        "first_name": raw.get("first_name", ""),
+        "last_name": raw.get("last_name", ""),
+        "baseline_score": safe_int(
+            raw.get("baseline_score")
+            or raw.get("life_score")
+            or raw.get("lifetime")
+        ),
+        "snapshot_score": safe_int(
+            raw.get("snapshot_score")
+            or raw.get("current_score")
+            or raw.get("snap")
+        ),
+        "group_name": raw.get("group_name") or raw.get("group") or ""
     }
-
 
 # =========================================================
 # ATTENDANCE / SCORE LOGIC

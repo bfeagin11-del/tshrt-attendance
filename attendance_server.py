@@ -290,92 +290,84 @@ def home():
 
 @app.route("/api/roster/sync", methods=["POST"])
 def sync_roster():
-    incoming = request.get_json(silent=True)
+    incoming = request.get_json(force=True)
 
-    if incoming is None:
-        return jsonify({
-            "ok": False,
-            "error": "No JSON payload received"
-        }), 400
+    if not incoming:
+        return jsonify({"ok": False, "error": "No data received"}), 400
 
+    # Accept both formats
     if isinstance(incoming, dict) and "clients" in incoming:
-        raw_clients = incoming.get("clients", [])
+        raw_clients = incoming["clients"]
     elif isinstance(incoming, list):
         raw_clients = incoming
     else:
-        return jsonify({
-            "ok": False,
-            "error": "Payload must be a list or an object containing 'clients'"
-        }), 400
+        return jsonify({"ok": False, "error": "Invalid format"}), 400
 
-    normalized = []
-    seen = set()
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("DELETE FROM clients")
+
+    inserted = 0
 
     for raw in raw_clients:
         if not isinstance(raw, dict):
             continue
 
-        client = normalize_client(raw)
-        if not client:
+        # 🔥 FORCE NAME BUILD (no skipping)
+        first = str(raw.get("first_name", "")).strip()
+        last = str(raw.get("last_name", "")).strip()
+        display = str(
+            raw.get("display_name")
+            or raw.get("name")
+            or raw.get("client_name")
+            or f"{first} {last}"
+        ).strip()
+
+        # If STILL no name, skip
+        if not display:
             continue
 
-        key = client["display_name"].strip().lower()
-        if not key or key in seen:
-            continue
+        try:
+            baseline = int(float(raw.get("baseline_score", 0)))
+        except:
+            baseline = 0
 
-        seen.add(key)
-        normalized.append(client)
+        try:
+            snapshot = int(float(raw.get("snapshot_score", 0)))
+        except:
+            snapshot = 0
 
-    conn = get_conn()
-    cur = conn.cursor()
+        group = str(raw.get("group_name") or raw.get("group") or "")
 
-    try:
-        cur.execute("BEGIN")
+        cur.execute("""
+            INSERT INTO clients (
+                display_name,
+                first_name,
+                last_name,
+                baseline_score,
+                snapshot_score,
+                group_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            display,
+            first,
+            last,
+            baseline,
+            snapshot,
+            group
+        ))
 
-        # Replace roster cleanly, but keep attendance history table intact
-        cur.execute("DELETE FROM clients")
+        inserted += 1
 
-        inserted = 0
-        for c in normalized:
-            cur.execute("""
-                INSERT INTO clients (
-                    display_name,
-                    first_name,
-                    last_name,
-                    baseline_score,
-                    snapshot_score,
-                    group_name,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (
-                c["display_name"],
-                c["first_name"],
-                c["last_name"],
-                c["baseline_score"],
-                c["snapshot_score"],
-                c["group_name"]
-            ))
-            inserted += 1
-
-        conn.commit()
-
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 500
-
-    total_clients = cur.execute("SELECT COUNT(*) AS count FROM clients").fetchone()["count"]
+    conn.commit()
     conn.close()
 
     return jsonify({
         "ok": True,
-        "inserted": inserted,
-        "total_clients": total_clients
-    }), 200
+        "inserted": inserted
+    })
 
 
 @app.route("/debug/roster")

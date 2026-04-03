@@ -511,17 +511,19 @@ def board():
     # HANDLE POST
     # HANDLE POST
 # HANDLE POST
-if request.method == "POST":
-    for d in date_list:
-        # Get all checked names for that date
-        attended_names = request.form.getlist(f"attended_{d}")
+    # HANDLE POST
+    if request.method == "POST":
+        for d in date_list:
+            # Get all checked names for that date
+            attended_names = request.form.getlist(f"attended_{d}")
 
-        # Check if finalize was selected
-        finalize = request.form.get(f"finalize_{d}") == "on"
+            # Check if finalize was selected
+            finalize = request.form.get(f"finalize_{d}") == "on"
 
-        # Save attendance
-        save_attendance_for_date(d, attended_names, finalize=finalize)
+            # Save attendance
+            save_attendance_for_date(d, attended_names, finalize=finalize)
 
+        return redirect(url_for("board"))
     return redirect(url_for("board"))
     # BUILD MATRIX
     attendance_matrix = {}

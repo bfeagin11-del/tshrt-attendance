@@ -129,20 +129,19 @@ def is_scoring_day(date_str):
 
 
 def count_attendance_for_client(conn, display_name):
-    """
-    Count only finalized attended classes on scoring days.
-    """
     cur = conn.cursor()
+
     rows = cur.execute("""
-        SELECT class_date, attended, finalized
+        SELECT attended, finalized
         FROM attendance
         WHERE display_name = ?
     """, (display_name,)).fetchall()
 
     count = 0
     for row in rows:
-        if row["attended"] == 1 and row["finalized"] == 1 and is_scoring_day(row["class_date"]):
+        if row["attended"] == 1 and row["finalized"] == 1:
             count += 1
+
     return count
 
 
@@ -511,12 +510,18 @@ def board():
 
     # HANDLE POST
     if request.method == "POST":
-        for d in date_list:
-            attended_names = request.form.getlist(f"attended_{d}")
-            finalize = request.form.get(f"finalize_{d}") == "on"
-            save_attendance_for_date(d, attended_names, finalize=finalize)
 
-        return redirect(url_for("board"))
+    for d in date_list:
+        # Get all checked names for that date
+        attended_names = request.form.getlist(f"attended_{d}")
+
+        # 🔥 THIS IS THE KEY LINE
+        finalize = request.form.get(f"finalize_{d}") == "on"
+
+        # Save attendance AND finalize if checked
+        save_attendance_for_date(d, attended_names, finalize=finalize)
+
+    return redirect(url_for("board"))
 
     # BUILD MATRIX
     attendance_matrix = {}

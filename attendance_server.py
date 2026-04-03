@@ -367,6 +367,7 @@ def debug_roster():
 
 
 @app.route("/checkin", methods=["GET", "POST"])
+@app.route("/checkin", methods=["GET", "POST"])
 def checkin():
     today_str = request.values.get("class_date", date.today().strftime("%Y-%m-%d"))
 
@@ -378,7 +379,7 @@ def checkin():
         if c.get("group_name", "").strip().lower() == "abc class"
     ]
 
-    # FALLBACK IF GROUP EMPTY
+    # FALLBACK IF EMPTY
     if not clients:
         clients = all_clients
 
@@ -405,6 +406,26 @@ def checkin():
                 text-align: center;
                 margin-bottom: 20px;
                 font-size: 18px;
+            }
+
+            .date-controls {
+                text-align: center;
+                margin-bottom: 20px;
+            }
+
+            input[type="date"] {
+                padding: 8px;
+                font-size: 16px;
+                margin-right: 10px;
+            }
+
+            .load-btn {
+                background: gold;
+                border: none;
+                padding: 8px 16px;
+                font-weight: bold;
+                cursor: pointer;
+                border-radius: 6px;
             }
 
             .grid {
@@ -463,6 +484,13 @@ def checkin():
         Class Date: <strong>{{ today_str }}</strong>
     </div>
 
+    <!-- 🔥 DATE SELECTOR -->
+    <form method="get" class="date-controls">
+        <input type="date" name="class_date" value="{{ today_str }}">
+        <button class="load-btn" type="submit">Load</button>
+    </form>
+
+    <!-- 🔥 ATTENDANCE -->
     <form method="post">
         <input type="hidden" name="class_date" value="{{ today_str }}">
 

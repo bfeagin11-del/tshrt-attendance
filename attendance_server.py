@@ -206,18 +206,26 @@ def save_attendance_for_date(class_date, attended_names, finalize=False):
     cur = conn.cursor()
 
     # -------------------------
+    # CHECK IF DATE ALREADY SCORED
+    # -------------------------
+    cur.execute("""
+        SELECT COUNT(*) FROM attendance
+        WHERE class_date = ? AND attended = 1
+    """, (class_date,))
+    already_scored = cur.fetchone()[0] > 0
+
+    # -------------------------
     # CLEAR EXISTING FOR DATE
     # -------------------------
     cur.execute("DELETE FROM attendance WHERE class_date = ?", (class_date,))
 
     # -------------------------
-    # LOAD ALL CLIENTS
+    # LOAD CLIENTS
     # -------------------------
     clients = get_clients_with_scores()
 
     for c in clients:
         name = c.get("display_name")
-
         attended = 1 if name in attended_names else 0
 
         # SAVE ATTENDANCE RECORD
@@ -227,9 +235,9 @@ def save_attendance_for_date(class_date, attended_names, finalize=False):
         """, (class_date, name, attended))
 
         # -------------------------
-        # UPDATE SCORES (KEY FIX)
+        # ONLY ADD POINTS ON FIRST SAVE
         # -------------------------
-        if attended == 1:
+        if attended == 1 and not already_scored:
             cur.execute("""
                 UPDATE clients
                 SET attendance_count = COALESCE(attendance_count, 0) + 1,

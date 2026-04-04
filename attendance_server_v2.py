@@ -24,19 +24,7 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-
-    try:
-        cur = conn.cursor()
-
-        cur.execute("""
-           INSERT INTO attendance (client_id, attended_date)
-            VALUES (?, ?)
-        """, (data.client_id, data.attended_date))
-
-        conn.commit()
-
-    finally:
-        conn.close()
+    cur = conn.cursor()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
@@ -62,9 +50,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-
-init_db()
 
 # ----------------------
 # MODELS

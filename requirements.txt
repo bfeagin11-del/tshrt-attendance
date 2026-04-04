@@ -1,1 +1,5 @@
 flask
+requests
+pandas
+fastapi
+uvicorn

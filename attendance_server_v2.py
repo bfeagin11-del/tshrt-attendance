@@ -5,7 +5,7 @@ import sqlite3
 import time
 
 app = FastAPI()
-DB_PATH = "cloud.db"
+DB_PATH = "/tmp/cloud.db"
 
 # ----------------------
 # DATABASE SETUP

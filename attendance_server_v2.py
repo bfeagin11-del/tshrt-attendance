@@ -12,12 +12,31 @@ DB_PATH = "cloud.db"
 # ----------------------
 
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(
+        DB_PATH,
+        check_same_thread=False,
+        timeout=10
+    )
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
 
 
 def init_db():
     conn = get_conn()
-    cur = conn.cursor()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+           INSERT INTO attendance (client_id, attended_date)
+            VALUES (?, ?)
+        """, (data.client_id, data.attended_date))
+
+        conn.commit()
+
+    finally:
+        conn.close()
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (

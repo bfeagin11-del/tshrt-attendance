@@ -129,22 +129,35 @@ def sync_clients(clients: List[Client]):
     return {"status": "clients synced", "count": len(clients)}
 
 
+import time
+
 @app.post("/checkin")
 def checkin(data: CheckIn):
-    conn = get_conn()
-    cur = conn.cursor()
+    retries = 3
 
-    try:
-        cur.execute("""
-        INSERT INTO attendance (client_id, attended_date)
-        VALUES (?, ?)
-        """, (data.client_id, data.attended_date))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Already checked in")
+    for attempt in range(retries):
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
 
-    conn.close()
-    return {"status": "checked in"}
+            cur.execute("""
+                INSERT INTO attendance (client_id, attended_date)
+                VALUES (?, ?)
+            """, (data.client_id, data.attended_date))
+
+            conn.commit()
+            conn.close()
+
+            return {"status": "checked in"}
+
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e):
+                time.sleep(0.5)
+                continue
+            else:
+                raise e
+
+    raise HTTPException(status_code=500, detail="Database locked, retry failed")
 
 
 @app.get("/board")

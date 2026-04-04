@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
-from datetime import date
 import sqlite3
+import time
 
 app = FastAPI()
 DB_PATH = "cloud.db"
@@ -50,6 +50,11 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+# 🔥 ENSURE TABLES EXIST ON STARTUP
+init_db()
+
 
 # ----------------------
 # MODELS
@@ -114,8 +119,6 @@ def sync_clients(clients: List[Client]):
     return {"status": "clients synced", "count": len(clients)}
 
 
-import time
-
 @app.post("/checkin")
 def checkin(data: CheckIn):
     retries = 3
@@ -135,6 +138,10 @@ def checkin(data: CheckIn):
 
             return {"status": "checked in"}
 
+        except sqlite3.IntegrityError:
+            # already checked in for that day
+            return {"status": "already checked in"}
+
         except sqlite3.OperationalError as e:
             if "locked" in str(e):
                 time.sleep(0.5)
@@ -150,7 +157,11 @@ def board():
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("SELECT client_id, display_name, snapshot_score, baseline_score FROM clients WHERE in_challenge=1")
+    cur.execute("""
+        SELECT client_id, display_name, snapshot_score, baseline_score 
+        FROM clients 
+        WHERE in_challenge=1
+    """)
     clients = cur.fetchall()
 
     result = []

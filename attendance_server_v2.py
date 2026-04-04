@@ -153,15 +153,23 @@ def checkin(data: CheckIn):
 
 
 @app.get("/board")
-def board():
+def board(group: str = None):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT client_id, display_name, snapshot_score, baseline_score 
-        FROM clients 
-        WHERE in_challenge=1
-    """)
+    if group:
+        cur.execute("""
+            SELECT client_id, display_name, snapshot_score, baseline_score 
+            FROM clients 
+            WHERE in_challenge=1 AND group_name=?
+        """, (group,))
+    else:
+        cur.execute("""
+            SELECT client_id, display_name, snapshot_score, baseline_score 
+            FROM clients 
+            WHERE in_challenge=1
+        """)
+
     clients = cur.fetchall()
 
     result = []
@@ -184,6 +192,8 @@ def board():
         })
 
     conn.close()
+
+    return sorted(result, key=lambda x: x["current_score"], reverse=True)
 
     return sorted(result, key=lambda x: x["current_score"], reverse=True)
 

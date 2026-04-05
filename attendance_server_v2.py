@@ -94,9 +94,9 @@ init_db()
 class Client(BaseModel):
     client_id: str
     display_name: str
-    first_name: str = ""
-    last_name: str = ""
-    group_name: str = ""
+    first_name: str
+    last_name: str
+    group_name: str   # ✅ THIS IS THE FIX
     snapshot_score: int = 0
     baseline_score: int = 0
     in_challenge: int = 1

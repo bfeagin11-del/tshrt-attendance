@@ -96,7 +96,41 @@ def daterange(start, end, allowed_days):
         start += timedelta(days=1)
     return dates
 
+@app.post("/sync")
+def sync_clients(clients: List[Client]):
+    conn = get_conn()
+    cur = conn.cursor()
 
+    for c in clients:
+        cur.execute("""
+            INSERT INTO clients (
+                client_id, display_name, first_name, last_name, group_name,
+                snapshot_score, baseline_score, in_challenge
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(client_id) DO UPDATE SET
+                display_name=excluded.display_name,
+                first_name=excluded.first_name,
+                last_name=excluded.last_name,
+                group_name=excluded.group_name,
+                snapshot_score=excluded.snapshot_score,
+                baseline_score=excluded.baseline_score,
+                in_challenge=excluded.in_challenge
+        """, (
+            c.client_id,
+            c.display_name,
+            c.first_name,
+            c.last_name,
+            c.group_name,
+            c.snapshot_score,
+            c.baseline_score,
+            c.in_challenge
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "clients synced", "count": len(clients)}
 def load_clients_for_group(group=None):
     conn = get_conn()
     cur = conn.cursor()

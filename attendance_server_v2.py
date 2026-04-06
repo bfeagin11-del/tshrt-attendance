@@ -476,7 +476,14 @@ def attendance_data(
 
     clients = load_clients_for_group(group=group, only_in_challenge=True)
     client_ids = [c["client_id"] for c in clients]
-    existing = get_attendance_map(client_ids, dates)
+
+    # 🔥 ALWAYS PULL FROM DB (no assumptions)
+    attendance = get_attendance_map(client_ids, dates)
+
+    # 🔥 FORCE EMPTY LISTS (prevents UI bugs)
+    for cid in client_ids:
+        if cid not in attendance:
+            attendance[cid] = []
 
     return {
         "group": group,
@@ -485,7 +492,7 @@ def attendance_data(
         "days": allowed_days,
         "dates": dates,
         "clients": clients,
-        "attendance": existing
+        "attendance": attendance
     }
 
 

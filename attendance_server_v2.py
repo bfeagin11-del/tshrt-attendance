@@ -5,6 +5,20 @@ from typing import List
 import sqlite3
 
 app = FastAPI()
+DB_PATH = "cloud.db"
+
+# ----------------------
+# CONNECTION FIRST
+# ----------------------
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# ----------------------
+# THEN INIT DB
+# ----------------------
 
 def init_db():
     conn = get_conn()
@@ -32,7 +46,10 @@ def init_db():
     conn.commit()
     conn.close()
 
-# 👇 CALL IT AFTER DEFINITION
+# ----------------------
+# THEN CALL IT
+# ----------------------
+
 init_db()
 
 def get_conn():

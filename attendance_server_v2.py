@@ -119,7 +119,7 @@ def load_clients_for_group(group=None):
     return rows
 
 
-ddef get_attendance_map(client_ids, dates):
+def get_attendance_map(client_ids, dates):
     if not client_ids or not dates:
         return {}
 

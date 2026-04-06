@@ -495,11 +495,13 @@ function buildDates() {
 
     while (start <= end) {
         if (days.includes(start.getDay())) {
-            dates.push(start.toISOString().slice(0,10));
-        }
-        start.setDate(start.getDate() + 1);
-    }
 
+            let year = start.getFullYear();
+            let month = String(start.getMonth() + 1).padStart(2, '0');
+            let day = String(start.getDate()).padStart(2, '0');
+
+            dates.push(year + "-" + month + "-" + day);   
+        }
     return dates;
 }
 

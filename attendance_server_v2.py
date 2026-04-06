@@ -5,6 +5,7 @@ from typing import List
 import sqlite3
 
 app = FastAPI()
+init_db()
 DB_PATH = "cloud.db"
 
 # ----------------------
@@ -16,6 +17,31 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     return conn
 
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS clients (
+        client_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        group_name TEXT
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id TEXT,
+        attended_date TEXT,
+        UNIQUE(client_id, attended_date)
+    )
+    """)
+
+    conn.commit()
+    conn.close()
 # ----------------------
 # MODELS
 # ----------------------

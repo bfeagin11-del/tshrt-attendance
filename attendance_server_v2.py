@@ -599,7 +599,7 @@ def attendance_page():
 
             const th = document.createElement("th");
             th.addEventListener("click", () => markWholeClient(client.client_id));
-            th.innerHTML = `${client.display_name || client.client_id}<span class="sub">${client.group_name || state.group}</span>`;
+            th.innerHTML = `${{client.display_name || client.client_id}}<span class="sub">${{client.group_name || state.group}}</span>`;
             tr.appendChild(th);
 
             for (const date of state.dates) {{

@@ -143,6 +143,8 @@ def get_meta_value(key: str, default: str) -> str:
     return row["value"] if row else default
 
 
+# --- ONLY SHOWING FIXED PARTS YOU NEED TO REPLACE ---
+
 def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool = True):
     conn = get_conn()
     cur = conn.cursor()
@@ -154,7 +156,7 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE group_name=? AND in_challenge=1
-                ORDER BY last_name, first_name
+                ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """, (group,))
         else:
             cur.execute("""
@@ -162,7 +164,7 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE group_name=?
-                ORDER BY last_name, first_name
+                ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """, (group,))
     else:
         if only_in_challenge:
@@ -171,19 +173,72 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE in_challenge=1
-                ORDER BY last_name, first_name
+                ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """)
         else:
             cur.execute("""
                 SELECT client_id, display_name, first_name, last_name, group_name,
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
-                ORDER BY last_name, first_name
+                ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """)
 
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+
+@app.get("/board")
+def board(
+    group: Optional[str] = Query(default=None),
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None)
+):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if group and group.lower() != "all":
+        cur.execute("""
+            SELECT client_id, display_name, first_name, last_name,
+                   snapshot_score, baseline_score, group_name
+            FROM clients
+            WHERE in_challenge=1 AND group_name=?
+            ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
+        """, (group,))
+    else:
+        cur.execute("""
+            SELECT client_id, display_name, first_name, last_name,
+                   snapshot_score, baseline_score, group_name
+            FROM clients
+            WHERE in_challenge=1
+            ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
+        """)
+
+    clients = cur.fetchall()
+    result = []
+
+    for c in clients:
+        client_id = c["client_id"]
+        name = c["display_name"]
+        snapshot = int(c["snapshot_score"] or 0)
+        baseline = int(c["baseline_score"] or 0)
+
+        attendance_count = attendance_count_for_client(cur, client_id, start, end)
+        current_score = snapshot + attendance_count
+        lifetime_score = baseline + current_score
+
+        result.append({
+            "client_id": client_id,
+            "name": name,
+            "group": c["group_name"],
+            "attendance": attendance_count,
+            "current_score": current_score,
+            "lifetime_score": lifetime_score
+        })
+
+    conn.close()
+
+    return sorted(result, key=lambda x: x["current_score"], reverse=True)
 
 
 def get_attendance_map(client_ids: List[str], dates: List[str]) -> Dict[str, List[str]]:

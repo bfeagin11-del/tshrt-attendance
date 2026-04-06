@@ -1,6 +1,15 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import List
+from datetime import date
+import sqlite3
+
+app = FastAPI()
+
 @app.get("/attendance", response_class=HTMLResponse)
 def attendance_page():
-    return f"""
+   return """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -418,12 +427,12 @@ def attendance_page():
 
         <div class="field">
             <label for="startDate">Challenge Start</label>
-            <input id="startDate" type="date" value="{DEFAULT_CHALLENGE_START}" />
+            <input id="startDate" type="date" value="2026-03-09"
         </div>
 
         <div class="field">
             <label for="endDate">Challenge End</label>
-            <input id="endDate" type="date" value="{DEFAULT_CHALLENGE_END}" />
+            <input id="endDate" type="date" value="2026-04-20"
         </div>
 
         <div class="field">

@@ -15,6 +15,23 @@ DB_PATH = os.environ.get("TSHRT_DB_PATH", "/tmp/cloud.db")
 DEFAULT_CHALLENGE_START = "2026-03-09"
 DEFAULT_CHALLENGE_END = "2026-04-20"
 
+@app.get("/attendance", response_class=HTMLResponse)
+def attendance_page():
+    return """
+    <html>
+    <head>
+        <title>TSHRT Attendance</title>
+    </head>
+    <body style="background:#0f172a;color:white;font-family:sans-serif;">
+        <h1 style="text-align:center;">TSHRT Attendance Board</h1>
+        <p style="text-align:center;">If you see this, your route is working.</p>
+
+        <div style="text-align:center;margin-top:30px;">
+            <a href="/attendance/data" style="color:#22c55e;">Test Data Endpoint</a>
+        </div>
+    </body>
+    </html>
+    """
 
 # ----------------------
 # DATABASE

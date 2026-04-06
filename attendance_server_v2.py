@@ -120,16 +120,17 @@ def attendance_page():
 <head>
 <style>
 body { background:#0f172a; color:white; font-family:sans-serif; }
-table { border-collapse: collapse; }
-td, th { border:1px solid #333; padding:6px; text-align:center; }
-.cell { cursor:pointer; }
+table { border-collapse: collapse; margin-top:20px; }
+td, th { border:1px solid #333; padding:8px; text-align:center; }
+.cell { cursor:pointer; width:30px; height:30px; }
 .green { background:#16a34a; }
+.header { background:#1f2937; }
 </style>
 </head>
 
 <body>
 
-<h2>Attendance Board</h2>
+<h2>TSHRT Attendance Board</h2>
 
 <select id="group">
 <option>ABC Class</option>
@@ -137,10 +138,8 @@ td, th { border:1px solid #333; padding:6px; text-align:center; }
 <option>Personal</option>
 </select>
 
-<button onclick="load()">Load</button>
+<button onclick="load()">Load Board</button>
 <button onclick="save()">Save</button>
-
-<br><br>
 
 <table id="grid"></table>
 
@@ -161,7 +160,7 @@ function buildDates() {
         d.setDate(start.getDate() + i);
 
         let day = d.getDay();
-        if (day === 1 || day === 3) { // Mon / Wed
+        if (day === 1 || day === 3) {
             dates.push(d.toISOString().slice(0,10));
         }
     }
@@ -172,7 +171,7 @@ function buildDates() {
 async function load() {
     let group = document.getElementById("group").value;
 
-    let res = await fetch("/attendance/data?group=" + group);
+    let res = await fetch("/attendance/data?group=" + encodeURIComponent(group));
     let data = await res.json();
 
     state.clients = data.clients;
@@ -182,20 +181,20 @@ async function load() {
 }
 
 function render() {
-    let html = "<tr><th>Name</th>";
+    let html = "<tr><th class='header'>Name</th>";
 
     for (let d of state.dates) {
-        html += "<th>" + d.slice(5) + "</th>";
+        html += "<th class='header'>" + d.slice(5) + "</th>";
     }
 
     html += "</tr>";
 
     state.clients.sort((a,b)=>a.display_name.localeCompare(b.display_name));
 
-    state.clients.forEach((c, i) => {
+    state.clients.forEach(c => {
         html += "<tr><td>" + c.display_name + "</td>";
 
-        state.dates.forEach((d, j) => {
+        state.dates.forEach(d => {
             let key = c.client_id + "_" + d;
             let active = state.selected[key] ? "green" : "";
 
@@ -232,13 +231,15 @@ async function save() {
         payload[id].push(date);
     }
 
-    await fetch("/attendance/save", {
+    let res = await fetch("/attendance/save", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({selected: payload})
     });
 
-    alert("Saved!");
+    let data = await res.json();
+
+    alert("Saved " + data.saved + " check-ins");
 }
 
 </script>

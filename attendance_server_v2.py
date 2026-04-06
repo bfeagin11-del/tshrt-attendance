@@ -251,6 +251,29 @@ async function save() {
 # SAVE
 # ----------------------
 
+@app.get("/attendance/data")
+def attendance_data(group: str):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM clients WHERE group_name=?", (group,))
+    clients = cur.fetchall()
+
+    result = []
+    for c in clients:
+        result.append({
+            "client_id": c["client_id"],
+            "display_name": c["display_name"],
+            "group_name": c["group_name"]
+        })
+
+    conn.close()
+
+    return {
+        "clients": result,
+        "attendance": {}
+    }
+
 @app.post("/attendance/save")
 def save_attendance(data: dict):
     conn = get_conn()

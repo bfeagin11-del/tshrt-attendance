@@ -219,8 +219,13 @@ End:
 <input type="date" id="end" value="2026-04-20">
 
 Days:
+<label><input type="checkbox" value="0">Sun</label>
 <label><input type="checkbox" value="1" checked>Mon</label>
+<label><input type="checkbox" value="2">Tue</label>
 <label><input type="checkbox" value="3" checked>Wed</label>
+<label><input type="checkbox" value="4">Thu</label>
+<label><input type="checkbox" value="5">Fri</label>
+<label><input type="checkbox" value="6">Sat</label>
 
 <button onclick="load()">Load</button>
 <button onclick="save()">Save</button>

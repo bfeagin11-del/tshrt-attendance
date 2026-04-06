@@ -113,28 +113,139 @@ def sync_clients(clients: List[Client]):
 # LOAD DATA
 # ----------------------
 
-@app.get("/attendance/data")
-def attendance_data(group: str):
-    conn = get_conn()
-    cur = conn.cursor()
+@app.get("/attendance", response_class=HTMLResponse)
+def attendance_page():
+    return """
+<html>
+<head>
+<style>
+body { background:#0f172a; color:white; font-family:sans-serif; }
+table { border-collapse: collapse; }
+td, th { border:1px solid #333; padding:6px; text-align:center; }
+.cell { cursor:pointer; }
+.green { background:#16a34a; }
+</style>
+</head>
 
-    cur.execute("SELECT * FROM clients WHERE group_name=?", (group,))
-    clients = cur.fetchall()
+<body>
 
-    result = []
-    for c in clients:
-        result.append({
-            "client_id": c["client_id"],
-            "display_name": c["display_name"],
-            "group_name": c["group_name"]
-        })
+<h2>Attendance Board</h2>
 
-    conn.close()
+<select id="group">
+<option>ABC Class</option>
+<option>Gym</option>
+<option>Personal</option>
+</select>
 
-    return {
-        "clients": result,
-        "attendance": {}
+<button onclick="load()">Load</button>
+<button onclick="save()">Save</button>
+
+<br><br>
+
+<table id="grid"></table>
+
+<script>
+
+let state = {
+    clients: [],
+    dates: [],
+    selected: {}
+};
+
+function buildDates() {
+    let start = new Date("2026-03-09");
+    let dates = [];
+
+    for (let i = 0; i < 42; i++) {
+        let d = new Date(start);
+        d.setDate(start.getDate() + i);
+
+        let day = d.getDay();
+        if (day === 1 || day === 3) { // Mon / Wed
+            dates.push(d.toISOString().slice(0,10));
+        }
     }
+
+    return dates;
+}
+
+async function load() {
+    let group = document.getElementById("group").value;
+
+    let res = await fetch("/attendance/data?group=" + group);
+    let data = await res.json();
+
+    state.clients = data.clients;
+    state.dates = buildDates();
+
+    render();
+}
+
+function render() {
+    let html = "<tr><th>Name</th>";
+
+    for (let d of state.dates) {
+        html += "<th>" + d.slice(5) + "</th>";
+    }
+
+    html += "</tr>";
+
+    state.clients.sort((a,b)=>a.display_name.localeCompare(b.display_name));
+
+    state.clients.forEach((c, i) => {
+        html += "<tr><td>" + c.display_name + "</td>";
+
+        state.dates.forEach((d, j) => {
+            let key = c.client_id + "_" + d;
+            let active = state.selected[key] ? "green" : "";
+
+            html += "<td class='cell " + active + "' onclick=\\"toggle('" + c.client_id + "','" + d + "')\\"></td>";
+        });
+
+        html += "</tr>";
+    });
+
+    document.getElementById("grid").innerHTML = html;
+}
+
+function toggle(id, date) {
+    let key = id + "_" + date;
+
+    if (state.selected[key]) {
+        delete state.selected[key];
+    } else {
+        state.selected[key] = true;
+    }
+
+    render();
+}
+
+async function save() {
+    let payload = {};
+
+    for (let key in state.selected) {
+        let parts = key.split("_");
+        let id = parts[0];
+        let date = parts.slice(1).join("_");
+
+        if (!payload[id]) payload[id] = [];
+        payload[id].push(date);
+    }
+
+    await fetch("/attendance/save", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({selected: payload})
+    });
+
+    alert("Saved!");
+}
+
+</script>
+
+</body>
+</html>
+"""
 
 # ----------------------
 # SAVE

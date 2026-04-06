@@ -149,13 +149,18 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
     conn = get_conn()
     cur = conn.cursor()
 
+    # TEMP DEBUG: show what is actually in DB
+    cur.execute("SELECT DISTINCT group_name FROM clients")
+    print("GROUPS IN DB:", [r[0] for r in cur.fetchall()])
+
     if group and group.lower() != "all":
         if only_in_challenge:
             cur.execute("""
                 SELECT client_id, display_name, first_name, last_name, group_name,
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
-                WHERE group_name=? AND in_challenge=1
+                WHERE (group_name=? OR group_name IS NULL OR group_name='')
+                  AND in_challenge=1
                 ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """, (group,))
         else:
@@ -163,7 +168,7 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                 SELECT client_id, display_name, first_name, last_name, group_name,
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
-                WHERE group_name=?
+                WHERE (group_name=? OR group_name IS NULL OR group_name='')
                 ORDER BY COALESCE(last_name,''), COALESCE(first_name,'')
             """, (group,))
     else:

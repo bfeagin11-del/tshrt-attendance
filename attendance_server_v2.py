@@ -921,6 +921,7 @@ def attendance_page():
             <button class="btn-primary" id="loadBtn" type="button">Load Board</button>
             <button class="btn-green" id="saveBtn" type="button">Save Attendance</button>
             <button class="btn-dark" id="finalizeBtn" type="button">Finalize Scores</button>
+            <button class="btn-outline" onclick="window.print()">Print</button>
         </div>
     </div>
 

@@ -119,20 +119,22 @@ def load_clients_for_group(group=None):
     return rows
 
 
-def get_attendance_map(client_ids, dates):
-    if not client_ids:
+ddef get_attendance_map(client_ids, dates):
+    if not client_ids or not dates:
         return {}
 
     conn = get_conn()
     cur = conn.cursor()
 
-    placeholders = ",".join(["?"] * len(client_ids))
+    placeholders_clients = ",".join(["?"] * len(client_ids))
+    placeholders_dates = ",".join(["?"] * len(dates))
 
     cur.execute(f"""
         SELECT client_id, attended_date
         FROM attendance
-        WHERE client_id IN ({placeholders})
-    """, client_ids)
+        WHERE client_id IN ({placeholders_clients})
+        AND attended_date IN ({placeholders_dates})
+    """, client_ids + dates)
 
     result = {}
     for row in cur.fetchall():

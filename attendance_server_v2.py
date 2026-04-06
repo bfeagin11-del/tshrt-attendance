@@ -154,7 +154,7 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE group_name=? AND in_challenge=1
-                ORDER BY display_name
+                ORDER BY last_name, first_name
             """, (group,))
         else:
             cur.execute("""
@@ -162,7 +162,7 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE group_name=?
-                ORDER BY display_name
+                ORDER BY last_name, first_name
             """, (group,))
     else:
         if only_in_challenge:
@@ -171,14 +171,14 @@ def load_clients_for_group(group: Optional[str] = None, only_in_challenge: bool 
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
                 WHERE in_challenge=1
-                ORDER BY display_name
+                ORDER BY last_name, first_name
             """)
         else:
             cur.execute("""
                 SELECT client_id, display_name, first_name, last_name, group_name,
                        snapshot_score, baseline_score, in_challenge
                 FROM clients
-                ORDER BY display_name
+                ORDER BY last_name, first_name
             """)
 
     rows = [dict(r) for r in cur.fetchall()]
@@ -344,14 +344,14 @@ def board(
             SELECT client_id, display_name, snapshot_score, baseline_score, group_name
             FROM clients
             WHERE in_challenge=1 AND group_name=?
-            ORDER BY display_name
+            ORDER BY last_name, first_name
         """, (group,))
     else:
         cur.execute("""
             SELECT client_id, display_name, snapshot_score, baseline_score, group_name
             FROM clients
             WHERE in_challenge=1
-            ORDER BY display_name
+            ORDER BY last_name, first_name
         """)
 
     clients = cur.fetchall()

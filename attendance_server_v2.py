@@ -152,6 +152,7 @@ def attendance_page():
 <html>
 <head>
 <style>
+<style>
 body {
     background:#0f172a;
     color:white;
@@ -159,33 +160,41 @@ body {
 }
 
 .controls {
-    margin-bottom:15px;
+    margin-bottom:20px;
 }
 
 table {
     border-collapse: collapse;
+    margin-top:10px;
 }
 
 td, th {
     border:1px solid #334155;
-    padding:6px;
+    padding:10px;
     text-align:center;
+    font-size:16px;
 }
 
 .name {
     text-align:left;
     background:#1f2937;
-    padding-left:10px;
+    padding-left:12px;
+    min-width:180px;
+    font-weight:500;
 }
 
 .cell {
-    width:28px;
-    height:28px;
+    width:40px;
+    height:40px;
     cursor:pointer;
 }
 
 .active {
     background:#22c55e;
+}
+
+th {
+    background:#1e293b;
 }
 </style>
 </head>

@@ -710,7 +710,7 @@ def attendance_page():
             if (!res.ok) throw new Error("save failed");
 
             const data = await res.json();
-            showToast(`Saved. ${data.saved || 0} check-ins updated.`);
+            showToast("Saved. " + (data.saved || 0) + " check-ins updated.");
         }} catch (e) {{
             showToast("Failed to save attendance.");
         }}

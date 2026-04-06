@@ -509,12 +509,6 @@ def attendance_save(payload: AttendanceSaveRequest):
         client_placeholders = ",".join(["?"] * len(client_ids))
         date_placeholders = ",".join(["?"] * len(dates))
 
-        cur.execute(f"""
-            DELETE FROM attendance
-            WHERE client_id IN ({client_placeholders})
-              AND attended_date IN ({date_placeholders})
-        """, client_ids + dates)
-
         saved = 0
 
         for client_id, client_dates in selected.items():

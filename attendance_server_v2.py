@@ -16,6 +16,7 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     return conn
 
+
 # ----------------------
 # INIT DB
 # ----------------------
@@ -46,7 +47,9 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 init_db()
+
 
 # ----------------------
 # MODEL
@@ -58,6 +61,16 @@ class Client(BaseModel):
     first_name: str = ""
     last_name: str = ""
     group_name: str = ""
+
+
+# ----------------------
+# DEBUG
+# ----------------------
+
+@app.get("/debug")
+def debug():
+    return {"status": "server running"}
+
 
 # ----------------------
 # SYNC
@@ -90,6 +103,46 @@ def sync_clients(clients: List[Client]):
 
     return {"status": "clients synced", "count": len(clients)}
 
+
+# ----------------------
+# BOARD
+# ----------------------
+
+@app.get("/board")
+def board():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT client_id, display_name, first_name, last_name, group_name
+        FROM clients
+        ORDER BY last_name, first_name
+    """)
+    clients = cur.fetchall()
+
+    result = []
+
+    for c in clients:
+        cur.execute("""
+            SELECT COUNT(*) AS cnt
+            FROM attendance
+            WHERE client_id = ?
+        """, (c["client_id"],))
+        attendance_count = cur.fetchone()["cnt"]
+
+        result.append({
+            "client_id": c["client_id"],
+            "name": c["display_name"],
+            "group": c["group_name"],
+            "attendance": attendance_count,
+            "current_score": attendance_count,
+            "lifetime_score": attendance_count
+        })
+
+    conn.close()
+    return result
+
+
 # ----------------------
 # LOAD DATA
 # ----------------------
@@ -99,7 +152,12 @@ def attendance_data(group: str):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("SELECT * FROM clients WHERE group_name=?", (group,))
+    cur.execute("""
+        SELECT *
+        FROM clients
+        WHERE group_name = ?
+        ORDER BY last_name, first_name
+    """, (group,))
     rows = cur.fetchall()
 
     clients = []
@@ -114,6 +172,7 @@ def attendance_data(group: str):
     conn.close()
 
     return {"clients": clients}
+
 
 # ----------------------
 # SAVE
@@ -134,13 +193,14 @@ def save_attendance(data: dict):
                 VALUES (?, ?)
                 """, (client_id, d))
                 saved += 1
-            except:
+            except sqlite3.IntegrityError:
                 pass
 
     conn.commit()
     conn.close()
 
     return {"saved": saved}
+
 
 # ----------------------
 # UI
@@ -153,13 +213,13 @@ def attendance_page():
 <head>
 <style>
 body {
-    background:#0f172a;
-    color:white;
-    font-family:sans-serif;
+    background: #0f172a;
+    color: white;
+    font-family: sans-serif;
 }
 
 .controls {
-    margin-bottom:20px;
+    margin-bottom: 20px;
 }
 
 table {
@@ -167,30 +227,30 @@ table {
 }
 
 td, th {
-    border:1px solid #334155;
-    padding:10px;
-    text-align:center;
+    border: 1px solid #334155;
+    padding: 10px;
+    text-align: center;
 }
 
 .name {
-    text-align:left;
-    background:#1f2937;
-    padding-left:12px;
-    min-width:180px;
+    text-align: left;
+    background: #1f2937;
+    padding-left: 12px;
+    min-width: 180px;
 }
 
 .cell {
-    width:40px;
-    height:40px;
-    cursor:pointer;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
 }
 
 .active {
-    background:#22c55e;
+    background: #22c55e;
 }
 
 th {
-    background:#1e293b;
+    background: #1e293b;
 }
 </style>
 </head>
@@ -223,15 +283,14 @@ Days:
 <label><input type="checkbox" value="5">Fri</label>
 <label><input type="checkbox" value="6">Sat</label>
 
-<button onclick="load()">Load</button>
-<button onclick="save()">Save</button>
+<button onclick="loadBoard()">Load</button>
+<button onclick="saveBoard()">Save</button>
 
 </div>
 
 <table id="grid"></table>
 
 <script>
-
 let state = {
     clients: [],
     dates: [],
@@ -251,13 +310,10 @@ function buildDates() {
     let dates = [];
 
     while (start <= end) {
-
         if (days.includes(start.getDay())) {
-
             let year = start.getFullYear();
-            let month = String(start.getMonth() + 1).padStart(2, '0');
-            let day = String(start.getDate()).padStart(2, '0');
-
+            let month = String(start.getMonth() + 1).padStart(2, "0");
+            let day = String(start.getDate()).padStart(2, "0");
             dates.push(year + "-" + month + "-" + day);
         }
 
@@ -267,13 +323,13 @@ function buildDates() {
     return dates;
 }
 
-async function load() {
+async function loadBoard() {
     let group = document.getElementById("group").value;
 
     let res = await fetch("/attendance/data?group=" + encodeURIComponent(group));
     let data = await res.json();
 
-    state.clients = data.clients;
+    state.clients = data.clients || [];
     state.dates = buildDates();
 
     render();
@@ -288,7 +344,7 @@ function render() {
 
     html += "</tr>";
 
-    state.clients.sort((a,b)=>{
+    state.clients.sort((a, b) => {
         if (a.last_name === b.last_name) {
             return a.first_name.localeCompare(b.first_name);
         }
@@ -303,7 +359,7 @@ function render() {
             let key = c.client_id + "_" + d;
             let cls = state.selected[key] ? "cell active" : "cell";
 
-            html += "<td class='" + cls + "' onclick=\\"toggle('" + c.client_id + "','" + d + "')\\"></td>";
+            html += "<td class='" + cls + "' onclick=\\"toggleCell('" + c.client_id + "','" + d + "')\\"></td>";
         }
 
         html += "</tr>";
@@ -312,7 +368,7 @@ function render() {
     document.getElementById("grid").innerHTML = html;
 }
 
-function toggle(id, date) {
+function toggleCell(id, date) {
     let key = id + "_" + date;
 
     if (state.selected[key]) {
@@ -324,7 +380,7 @@ function toggle(id, date) {
     render();
 }
 
-async function save() {
+async function saveBoard() {
     let payload = {};
 
     for (let key in state.selected) {
@@ -332,20 +388,21 @@ async function save() {
         let id = parts[0];
         let date = parts.slice(1).join("_");
 
-        if (!payload[id]) payload[id] = [];
+        if (!payload[id]) {
+            payload[id] = [];
+        }
         payload[id].push(date);
     }
 
     let res = await fetch("/attendance/save", {
         method: "POST",
-        headers: {"Content-Type":"application/json"},
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({selected: payload})
     });
 
     let data = await res.json();
     alert("Saved " + data.saved);
 }
-
 </script>
 
 </body>

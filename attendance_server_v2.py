@@ -76,32 +76,33 @@ def debug():
 # SYNC
 # ----------------------
 
-@app.post("/sync")
-def sync_clients(clients: List[Client]):
+from fastapi import Request
+
+@app.post("/attendance/save")
+async def save_attendance(request: Request):
+    data = await request.json()
+    selected = data.get("selected", {})
+
     conn = get_conn()
     cur = conn.cursor()
 
-    for c in clients:
-        cur.execute("""
-        INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(client_id) DO UPDATE SET
-            display_name=excluded.display_name,
-            first_name=excluded.first_name,
-            last_name=excluded.last_name,
-            group_name=excluded.group_name
-        """, (
-            c.client_id,
-            c.display_name,
-            c.first_name,
-            c.last_name,
-            c.group_name
-        ))
+    saved = 0
+
+    for client_id, dates in selected.items():
+        for d in dates:
+            try:
+                cur.execute("""
+                    INSERT OR IGNORE INTO attendance (client_id, attended_date)
+                    VALUES (?, ?)
+                """, (client_id, d))
+                saved += 1
+            except:
+                pass
 
     conn.commit()
     conn.close()
 
-    return {"status": "clients synced", "count": len(clients)}
+    return {"saved": saved}
 
 
 # ----------------------

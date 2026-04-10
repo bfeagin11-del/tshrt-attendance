@@ -162,28 +162,38 @@ def attendance_data(group: str):
 # SAVE ATTENDANCE (ONLY ONE VERSION)
 # ----------------------
 
-@app.post("/attendance/save")
-async def save_attendance(request: Request):
-    data = await request.json()
-    selected = data.get("selected", {})
+from pydantic import BaseModel
+from typing import List
 
+class SyncPayload(BaseModel):
+    clients: List[dict]
+
+@app.post("/sync")
+def sync_clients(payload: SyncPayload):
     conn = get_conn()
     cur = conn.cursor()
 
-    saved = 0
-
-    for client_id, dates in selected.items():
-        for d in dates:
-            cur.execute("""
-                INSERT OR IGNORE INTO attendance (client_id, attended_date)
-                VALUES (?, ?)
-            """, (client_id, d))
-            saved += 1
+    for c in payload.clients:
+        cur.execute("""
+        INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(client_id) DO UPDATE SET
+            display_name=excluded.display_name,
+            first_name=excluded.first_name,
+            last_name=excluded.last_name,
+            group_name=excluded.group_name
+        """, (
+            c.get("client_id"),
+            c.get("display_name"),
+            c.get("first_name"),
+            c.get("last_name"),
+            c.get("group_name")
+        ))
 
     conn.commit()
     conn.close()
 
-    return {"saved": saved}
+    return {"status": "synced", "count": len(payload.clients)}
 
 # ----------------------
 # UI

@@ -10,8 +10,12 @@ DB_PATH = "/data/cloud.db"
 # DB CONNECTION
 # ----------------------
 
+import os
+
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    os.makedirs("/data", exist_ok=True)  # 🔥 ensures folder exists
+
+    conn = sqlite3.connect("/data/cloud.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 

@@ -1,7 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from typing import List
 import sqlite3
 
 app = FastAPI()
@@ -15,7 +14,6 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 # ----------------------
 # INIT DB
@@ -47,21 +45,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 init_db()
-
-
-# ----------------------
-# MODEL
-# ----------------------
-
-class Client(BaseModel):
-    client_id: str
-    display_name: str
-    first_name: str = ""
-    last_name: str = ""
-    group_name: str = ""
-
 
 # ----------------------
 # DEBUG
@@ -71,39 +55,36 @@ class Client(BaseModel):
 def debug():
     return {"status": "server running"}
 
-
 # ----------------------
-# SYNC
+# SYNC (YOU ALREADY HAVE THIS WORKING)
 # ----------------------
 
-from fastapi import Request
-
-@app.post("/attendance/save")
-async def save_attendance(request: Request):
-    data = await request.json()
-    selected = data.get("selected", {})
-
+@app.post("/sync")
+def sync_clients(clients: list):
     conn = get_conn()
     cur = conn.cursor()
 
-    saved = 0
-
-    for client_id, dates in selected.items():
-        for d in dates:
-            try:
-                cur.execute("""
-                    INSERT OR IGNORE INTO attendance (client_id, attended_date)
-                    VALUES (?, ?)
-                """, (client_id, d))
-                saved += 1
-            except:
-                pass
+    for c in clients:
+        cur.execute("""
+        INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(client_id) DO UPDATE SET
+            display_name=excluded.display_name,
+            first_name=excluded.first_name,
+            last_name=excluded.last_name,
+            group_name=excluded.group_name
+        """, (
+            c.get("client_id"),
+            c.get("display_name"),
+            c.get("first_name"),
+            c.get("last_name"),
+            c.get("group_name")
+        ))
 
     conn.commit()
     conn.close()
 
-    return {"saved": saved}
-
+    return {"status": "synced", "count": len(clients)}
 
 # ----------------------
 # BOARD
@@ -125,27 +106,26 @@ def board():
 
     for c in clients:
         cur.execute("""
-            SELECT COUNT(*) AS cnt
+            SELECT COUNT(*) as cnt
             FROM attendance
-            WHERE client_id = ?
+            WHERE client_id=?
         """, (c["client_id"],))
-        attendance_count = cur.fetchone()["cnt"]
+        count = cur.fetchone()["cnt"]
 
         result.append({
             "client_id": c["client_id"],
             "name": c["display_name"],
             "group": c["group_name"],
-            "attendance": attendance_count,
-            "current_score": attendance_count,
-            "lifetime_score": attendance_count
+            "attendance": count,
+            "current_score": count,
+            "lifetime_score": count
         })
 
     conn.close()
     return result
 
-
 # ----------------------
-# LOAD DATA
+# LOAD CLIENTS FOR UI
 # ----------------------
 
 @app.get("/attendance/data")
@@ -159,13 +139,13 @@ def attendance_data(group: str):
         WHERE group_name = ?
         ORDER BY last_name, first_name
     """, (group,))
+
     rows = cur.fetchall()
 
     clients = []
     for r in rows:
         clients.append({
             "client_id": r["client_id"],
-            "display_name": r["display_name"],
             "first_name": r["first_name"],
             "last_name": r["last_name"]
         })
@@ -174,242 +154,9 @@ def attendance_data(group: str):
 
     return {"clients": clients}
 
-
 # ----------------------
-# SAVE
+# SAVE ATTENDANCE (ONLY ONE VERSION)
 # ----------------------
-
-@app.post("/attendance/save")
-def save_attendance(data: dict):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    saved = 0
-
-    for client_id, dates in data.get("selected", {}).items():
-        for d in dates:
-            try:
-                cur.execute("""
-                INSERT INTO attendance (client_id, attended_date)
-                VALUES (?, ?)
-                """, (client_id, d))
-                saved += 1
-            except sqlite3.IntegrityError:
-                pass
-
-    conn.commit()
-    conn.close()
-
-    return {"saved": saved}
-
-
-# ----------------------
-# UI
-# ----------------------
-
-@app.get("/attendance", response_class=HTMLResponse)
-def attendance_page():
-    return """
-<html>
-<head>
-<style>
-body {
-    background: #0f172a;
-    color: white;
-    font-family: sans-serif;
-}
-
-.controls {
-    margin-bottom: 20px;
-}
-
-table {
-    border-collapse: collapse;
-}
-
-td, th {
-    border: 1px solid #334155;
-    padding: 10px;
-    text-align: center;
-}
-
-.name {
-    text-align: left;
-    background: #1f2937;
-    padding-left: 12px;
-    min-width: 180px;
-}
-
-.cell {
-    width: 40px;
-    height: 40px;
-    cursor: pointer;
-}
-
-.active {
-    background: #22c55e;
-}
-
-th {
-    background: #1e293b;
-}
-</style>
-</head>
-
-<body>
-
-<h2>TSHRT Attendance Board</h2>
-
-<div class="controls">
-
-Group:
-<select id="group">
-<option>ABC Class</option>
-<option>Gym</option>
-<option>Personal</option>
-</select>
-
-Start:
-<input type="date" id="start" value="2026-03-09">
-
-End:
-<input type="date" id="end" value="2026-04-20">
-
-Days:
-<label><input type="checkbox" value="0">Sun</label>
-<label><input type="checkbox" value="1" checked>Mon</label>
-<label><input type="checkbox" value="2">Tue</label>
-<label><input type="checkbox" value="3" checked>Wed</label>
-<label><input type="checkbox" value="4">Thu</label>
-<label><input type="checkbox" value="5">Fri</label>
-<label><input type="checkbox" value="6">Sat</label>
-
-<button onclick="loadBoard()">Load</button>
-<button onclick="saveBoard()">Save</button>
-
-</div>
-
-<table id="grid"></table>
-
-<script>
-let state = {
-    clients: [],
-    dates: [],
-    selected: {}
-};
-
-function getSelectedDays() {
-    let checks = document.querySelectorAll("input[type=checkbox]:checked");
-    return Array.from(checks).map(c => parseInt(c.value));
-}
-
-function buildDates() {
-    let start = new Date(document.getElementById("start").value);
-    let end = new Date(document.getElementById("end").value);
-    let days = getSelectedDays();
-
-    let dates = [];
-
-    while (start <= end) {
-        if (days.includes(start.getDay())) {
-            let year = start.getFullYear();
-            let month = String(start.getMonth() + 1).padStart(2, "0");
-            let day = String(start.getDate()).padStart(2, "0");
-            dates.push(year + "-" + month + "-" + day);
-        }
-
-        start.setDate(start.getDate() + 1);
-    }
-
-    return dates;
-}
-
-async function loadBoard() {
-    let group = document.getElementById("group").value;
-
-    let res = await fetch("/attendance/data?group=" + encodeURIComponent(group));
-    let data = await res.json();
-
-    state.clients = data.clients || [];
-    state.dates = buildDates();
-
-    render();
-}
-
-function render() {
-    let html = "<tr><th class='name'>Name</th>";
-
-    for (let d of state.dates) {
-        html += "<th>" + d.slice(5) + "</th>";
-    }
-
-    html += "</tr>";
-
-    state.clients.sort((a, b) => {
-        if (a.last_name === b.last_name) {
-            return a.first_name.localeCompare(b.first_name);
-        }
-        return a.last_name.localeCompare(b.last_name);
-    });
-
-    for (let c of state.clients) {
-        html += "<tr>";
-        html += "<td class='name'>" + c.last_name + ", " + c.first_name + "</td>";
-
-        for (let d of state.dates) {
-            let key = c.client_id + "_" + d;
-            let cls = state.selected[key] ? "cell active" : "cell";
-
-            html += "<td class='" + cls + "' onclick=\\"toggleCell('" + c.client_id + "','" + d + "')\\"></td>";
-        }
-
-        html += "</tr>";
-    }
-
-    document.getElementById("grid").innerHTML = html;
-}
-
-function toggleCell(id, date) {
-    let key = id + "_" + date;
-
-    if (state.selected[key]) {
-        delete state.selected[key];
-    } else {
-        state.selected[key] = true;
-    }
-
-    render();
-}
-
-async function saveBoard() {
-    let payload = {};
-
-    for (let key in state.selected) {
-        let parts = key.split("_");
-        let id = parts[0];
-        let date = parts.slice(1).join("_");
-
-        if (!payload[id]) {
-            payload[id] = [];
-        }
-        payload[id].push(date);
-    }
-
-    let res = await fetch("/attendance/save", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({selected: payload})
-    });
-
-    let data = await res.json();
-    alert("Saved " + data.saved);
-}
-</script>
-
-</body>
-</html>
-"""
-from fastapi import Request
 
 @app.post("/attendance/save")
 async def save_attendance(request: Request):
@@ -433,3 +180,127 @@ async def save_attendance(request: Request):
     conn.close()
 
     return {"saved": saved}
+
+# ----------------------
+# UI
+# ----------------------
+
+@app.get("/attendance", response_class=HTMLResponse)
+def attendance_page():
+    return """
+<html>
+<head>
+<style>
+body { background:#0f172a; color:white; font-family:sans-serif; }
+.controls { margin-bottom:20px; }
+table { border-collapse:collapse; }
+td, th { border:1px solid #334155; padding:10px; text-align:center; }
+.name { text-align:left; background:#1f2937; padding-left:12px; min-width:180px; }
+.cell { width:40px; height:40px; cursor:pointer; }
+.active { background:#22c55e; }
+th { background:#1e293b; }
+</style>
+</head>
+
+<body>
+
+<h2>TSHRT Attendance Board</h2>
+
+<div class="controls">
+Group:
+<select id="group">
+<option>ABC Class</option>
+<option>Gym</option>
+<option>Personal</option>
+</select>
+
+Start:
+<input type="date" id="start" value="2026-03-09">
+
+End:
+<input type="date" id="end" value="2026-04-20">
+
+Days:
+<label><input type="checkbox" value="1" checked>Mon</label>
+<label><input type="checkbox" value="3" checked>Wed</label>
+
+<button onclick="loadBoard()">Load</button>
+<button onclick="saveBoard()">Save</button>
+</div>
+
+<table id="grid"></table>
+
+<script>
+let state = { clients:[], dates:[], selected:{} };
+
+function getDays(){
+    return Array.from(document.querySelectorAll("input[type=checkbox]:checked")).map(c=>parseInt(c.value));
+}
+
+function buildDates(){
+    let s=new Date(start.value), e=new Date(end.value), d=getDays(), arr=[];
+    while(s<=e){
+        if(d.includes(s.getDay())){
+            arr.push(s.toISOString().slice(0,10));
+        }
+        s.setDate(s.getDate()+1);
+    }
+    return arr;
+}
+
+async function loadBoard(){
+    let g=group.value;
+    let res=await fetch("/attendance/data?group="+encodeURIComponent(g));
+    let data=await res.json();
+    state.clients=data.clients;
+    state.dates=buildDates();
+    render();
+}
+
+function render(){
+    let html="<tr><th class='name'>Name</th>";
+    for(let d of state.dates){ html+="<th>"+d.slice(5)+"</th>"; }
+    html+="</tr>";
+
+    for(let c of state.clients){
+        html+="<tr><td class='name'>"+c.last_name+", "+c.first_name+"</td>";
+        for(let d of state.dates){
+            let k=c.client_id+"_"+d;
+            let cls=state.selected[k]?"cell active":"cell";
+            html+="<td class='"+cls+"' onclick=\"toggle('"+c.client_id+"','"+d+"')\"></td>";
+        }
+        html+="</tr>";
+    }
+
+    grid.innerHTML=html;
+}
+
+function toggle(id,date){
+    let k=id+"_"+date;
+    state.selected[k]?delete state.selected[k]:state.selected[k]=true;
+    render();
+}
+
+async function saveBoard(){
+    let payload={};
+    for(let k in state.selected){
+        let [id,...d]=k.split("_");
+        d=d.join("_");
+        if(!payload[id]) payload[id]=[];
+        payload[id].push(d);
+    }
+
+    let res=await fetch("/attendance/save",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({selected:payload})
+    });
+
+    let data=await res.json();
+    alert("Saved "+data.saved);
+}
+</script>
+
+</body>
+</html>
+"""

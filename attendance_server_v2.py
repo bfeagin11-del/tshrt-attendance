@@ -409,3 +409,27 @@ async function saveBoard() {
 </body>
 </html>
 """
+from fastapi import Request
+
+@app.post("/attendance/save")
+async def save_attendance(request: Request):
+    data = await request.json()
+    selected = data.get("selected", {})
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    saved = 0
+
+    for client_id, dates in selected.items():
+        for d in dates:
+            cur.execute("""
+                INSERT OR IGNORE INTO attendance (client_id, attended_date)
+                VALUES (?, ?)
+            """, (client_id, d))
+            saved += 1
+
+    conn.commit()
+    conn.close()
+
+    return {"saved": saved}

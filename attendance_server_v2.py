@@ -5,7 +5,7 @@ from typing import List
 import sqlite3
 
 app = FastAPI()
-DB_PATH = "cloud.db"
+DB_PATH = "/data/cloud.db"
 
 # ----------------------
 # DB CONNECTION

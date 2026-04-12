@@ -410,15 +410,19 @@ Start: <input type="date" id="start" value="2026-03-09">
 End: <input type="date" id="end" value="2026-04-20">
 
 Days:
+<label><input type="checkbox" class="daybox" value="0">Sun</label>
 <label><input type="checkbox" class="daybox" value="1" checked>Mon</label>
+<label><input type="checkbox" class="daybox" value="2">Tue</label>
 <label><input type="checkbox" class="daybox" value="3" checked>Wed</label>
+<label><input type="checkbox" class="daybox" value="4">Thu</label>
+<label><input type="checkbox" class="daybox" value="5">Fri</label>
+<label><input type="checkbox" class="daybox" value="6">Sat</label>
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
 <button onclick="finalizeDate()">Finalize</button>
 <button onclick="unfinalizeDate()">Unfinalize</button>
 <button onclick="wakeServer()">Wake</button>
-</div>
 
 <div class="small">Gold border = finalized / locked date.</div>
 

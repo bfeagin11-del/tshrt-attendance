@@ -254,7 +254,7 @@ def save_attendance(payload: SavePayload):
 
     group = (payload.group or "").strip()
 
-    # Get ONLY clients in this group
+    # Get clients for THIS group only
     client_rows = cur.execute(f"""
         SELECT client_id
         FROM clients
@@ -263,7 +263,7 @@ def save_attendance(payload: SavePayload):
 
     group_client_ids = {r["client_id"] for r in client_rows}
 
-    # Get finalized dates (do not overwrite)
+    # Get finalized dates (never overwrite)
     finalized_rows = cur.execute("""
         SELECT DISTINCT attended_date
         FROM attendance
@@ -272,47 +272,45 @@ def save_attendance(payload: SavePayload):
 
     finalized_dates = {r["attended_date"] for r in finalized_rows}
 
+    # Build selected set
     selected_set = set()
-
     for rec in payload.selected_records:
-        client_id = str(rec.get("client_id", "")).strip()
-        attended_date = str(rec.get("attended_date", "")).strip()
+        cid = str(rec.get("client_id", "")).strip()
+        dt = str(rec.get("attended_date", "")).strip()
 
-        if not client_id or not attended_date:
+        if not cid or not dt:
+            continue
+        if cid not in group_client_ids:
+            continue
+        if dt in finalized_dates:
             continue
 
-        if client_id not in group_client_ids:
-            continue
+        selected_set.add((cid, dt))
 
-        if attended_date in finalized_dates:
-            continue
+    # DELETE only NON-finalized for THIS GROUP
+    cur.execute(f"""
+        DELETE FROM attendance
+        WHERE client_id IN (
+            SELECT client_id FROM clients WHERE {group_match_sql()}
+        )
+        AND COALESCE(finalized, 0) = 0
+    """, (group,))
 
-        selected_set.add((client_id, attended_date))
-
-    # Delete ONLY non-finalized for THIS GROUP
-    for client_id in group_client_ids:
-        cur.execute("""
-            DELETE FROM attendance
-            WHERE client_id = ?
-              AND COALESCE(finalized, 0) = 0
-        """, (client_id,))
-
-    # Reinsert clean data
-    for client_id, attended_date in selected_set:
+    # INSERT fresh data
+    for cid, dt in selected_set:
         cur.execute("""
             INSERT INTO attendance (client_id, attended_date, present, finalized)
             VALUES (?, ?, 1, 0)
             ON CONFLICT(client_id, attended_date) DO UPDATE SET
                 present = 1
-        """, (client_id, attended_date))
+        """, (cid, dt))
 
     conn.commit()
     conn.close()
 
     return {
         "ok": True,
-        "saved_count": len(selected_set),
-        "group": group
+        "saved_count": len(selected_set)
     }
 
 

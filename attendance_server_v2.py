@@ -5,7 +5,7 @@ import sqlite3
 import os
 from typing import List, Dict
 
-app = FastAPI()
+app = FastAPI() 
 
 # =========================================================
 # DB SETUP
@@ -287,13 +287,14 @@ Days:
 <table id="grid"></table>
 
 <script>
-let state = { clients:[], dates:[], selected:{} };
+let state = { clients: [], dates: [], selected: {} };
 
-function getDays(){
-    return Array.from(document.querySelectorAll("input[type=checkbox]:checked")).map(c=>parseInt(c.value));
+function getDays() {
+    return Array.from(document.querySelectorAll("input[type=checkbox]:checked"))
+        .map(c => parseInt(c.value));
 }
 
-function buildDates(){
+function buildDates() {
     let s = new Date(start.value + "T12:00:00");
     let e = new Date(end.value + "T12:00:00");
     let d = getDays();
@@ -311,19 +312,6 @@ function buildDates(){
 
     return arr;
 }
-
-async function loadBoard(){
-    let g=group.value;
-
-    let clientsRes = await fetch("/attendance/data?group="+g);
-    let clientsData = await clientsRes.json();
-
-    let attRes = await fetch("/attendance/load?group="+g);
-    let attData = await attRes.json();
-
-    state.clients = clientsData.clients;
-    state.selected = attData.selected || {};
-    state.dates = buildDates();
 
 function formatHeaderDate(dateStr) {
     const dt = new Date(dateStr + "T12:00:00");
@@ -345,71 +333,90 @@ function formatHeaderDate(dateStr) {
 
     return `${dayName}, ${dayNum} ${monthName} ${yearShort}`;
 }
+
+async function loadBoard() {
+    let g = group.value;
+
+    let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
+    let clientsData = await clientsRes.json();
+
+    let attRes = await fetch("/attendance/load?group=" + encodeURIComponent(g));
+    let attData = await attRes.json();
+
+    state.clients = clientsData.clients || [];
+    state.selected = attData.selected || {};
+    state.dates = buildDates();
+
     render();
 }
 
-function render(){
-    let html="<tr><th class='name'>Name</th>";
+function render() {
+    let html = "<tr><th class='name'>Name</th>";
+
     for (let d of state.dates) {
         html += "<th>" + formatHeaderDate(d) + "</th>";
     }
+    html += "</tr>";
 
-    for(let c of state.clients){
-        html+="<tr><td class='name'>"+c.last_name+", "+c.first_name+"</td>";
-        for(let d of state.dates){
-            let k=c.client_id+"_"+d;
-            let cls=state.selected[k]?"cell active":"cell";
-            html+="<td class='"+cls+"' onclick=\\"toggle('"+c.client_id+"','"+d+"')\\"></td>";
+    for (let c of state.clients) {
+        html += "<tr><td class='name'>" + c.last_name + ", " + c.first_name + "</td>";
+
+        for (let d of state.dates) {
+            let k = c.client_id + "_" + d;
+            let cls = state.selected[k] ? "cell active" : "cell";
+            html += "<td class='" + cls + "' onclick=\"toggle('" + c.client_id + "','" + d + "')\"></td>";
         }
-        html+="</tr>";
+
+        html += "</tr>";
     }
 
-    grid.innerHTML=html;
+    grid.innerHTML = html;
 }
 
-function toggle(id,date){
-    let k=id+"_"+date;
-    state.selected[k]?delete state.selected[k]:state.selected[k]=true;
+function toggle(id, date) {
+    let k = id + "_" + date;
+    if (state.selected[k]) {
+        delete state.selected[k];
+    } else {
+        state.selected[k] = true;
+    }
     render();
 }
 
-async function saveBoard(){
-    let payload={};
-    for(let k in state.selected){
-        let [id,...d]=k.split("_");
-        d=d.join("_");
-        if(!payload[id]) payload[id]=[];
+async function saveBoard() {
+    let payload = {};
+
+    for (let k in state.selected) {
+        let [id, ...d] = k.split("_");
+        d = d.join("_");
+        if (!payload[id]) payload[id] = [];
         payload[id].push(d);
     }
 
-    await fetch("/attendance/save",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({selected:payload})
+    await fetch("/attendance/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected: payload })
     });
 
     alert("Saved");
 }
 
-async function finalize(){
-    let d=prompt("Enter date to finalize (YYYY-MM-DD)");
-    if(!d) return;
+async function finalize() {
+    let d = prompt("Enter date to finalize (YYYY-MM-DD)");
+    if (!d) return;
 
-    await fetch("/attendance/save",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({selected:{}, finalize_date:d})
+    await fetch("/attendance/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected: {}, finalize_date: d })
     });
 
-    alert("Finalized "+d);
+    alert("Finalized " + d);
 }
 
-async function wakeServer(){
+async function wakeServer() {
     await fetch("/wake");
     alert("Server Awake");
 }
 </script>
-
-</body>
-</html>
-"""

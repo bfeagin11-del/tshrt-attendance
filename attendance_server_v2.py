@@ -50,7 +50,7 @@ def init_db():
     conn.close()
 
 init_db()
-
+upgrade_db()
 def upgrade_db():
     conn = get_conn()
     cur = conn.cursor()

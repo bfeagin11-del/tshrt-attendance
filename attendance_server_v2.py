@@ -1,32 +1,29 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
+import os
+from typing import List, Dict
 
 app = FastAPI()
+
+# =========================================================
+# DB SETUP
+# =========================================================
+
 DB_PATH = "/data/cloud.db"
 
-# ----------------------
-# DB CONNECTION
-# ----------------------
-
-import os
-
 def get_conn():
-    os.makedirs("/data", exist_ok=True)  # 🔥 ensures folder exists
-
-    conn = sqlite3.connect("/data/cloud.db", check_same_thread=False)
+    os.makedirs("/data", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
-
-# ----------------------
-# INIT DB
-# ----------------------
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
+    # CLIENTS
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clients (
         client_id TEXT PRIMARY KEY,
@@ -37,11 +34,14 @@ def init_db():
     )
     """)
 
+    # ATTENDANCE (with finalized flag)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS attendance (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id TEXT,
         attended_date TEXT,
+        present INTEGER DEFAULT 1,
+        finalized INTEGER DEFAULT 0,
         UNIQUE(client_id, attended_date)
     )
     """)
@@ -51,24 +51,31 @@ def init_db():
 
 init_db()
 
-# ----------------------
-# DEBUG
-# ----------------------
+# =========================================================
+# DEBUG / WAKE
+# =========================================================
 
 @app.get("/debug")
 def debug():
     return {"status": "server running"}
 
-# ----------------------
-# SYNC (YOU ALREADY HAVE THIS WORKING)
-# ----------------------
+@app.get("/wake")
+def wake():
+    return {"status": "awake"}
+
+# =========================================================
+# SYNC (CLEAN — ONLY ONE VERSION)
+# =========================================================
+
+class SyncPayload(BaseModel):
+    clients: List[dict]
 
 @app.post("/sync")
-def sync_clients(clients: list):
+def sync_clients(payload: SyncPayload):
     conn = get_conn()
     cur = conn.cursor()
 
-    for c in clients:
+    for c in payload.clients:
         cur.execute("""
         INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
         VALUES (?, ?, ?, ?, ?)
@@ -88,49 +95,11 @@ def sync_clients(clients: list):
     conn.commit()
     conn.close()
 
-    return {"status": "synced", "count": len(clients)}
+    return {"status": "synced", "count": len(payload.clients)}
 
-# ----------------------
-# BOARD
-# ----------------------
-
-@app.get("/board")
-def board():
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT client_id, display_name, first_name, last_name, group_name
-        FROM clients
-        ORDER BY last_name, first_name
-    """)
-    clients = cur.fetchall()
-
-    result = []
-
-    for c in clients:
-        cur.execute("""
-            SELECT COUNT(*) as cnt
-            FROM attendance
-            WHERE client_id=?
-        """, (c["client_id"],))
-        count = cur.fetchone()["cnt"]
-
-        result.append({
-            "client_id": c["client_id"],
-            "name": c["display_name"],
-            "group": c["group_name"],
-            "attendance": count,
-            "current_score": count,
-            "lifetime_score": count
-        })
-
-    conn.close()
-    return result
-
-# ----------------------
-# LOAD CLIENTS FOR UI
-# ----------------------
+# =========================================================
+# LOAD CLIENTS
+# =========================================================
 
 @app.get("/attendance/data")
 def attendance_data(group: str):
@@ -145,36 +114,86 @@ def attendance_data(group: str):
     """, (group,))
 
     rows = cur.fetchall()
-
-    clients = []
-    for r in rows:
-        clients.append({
-            "client_id": r["client_id"],
-            "first_name": r["first_name"],
-            "last_name": r["last_name"]
-        })
-
     conn.close()
 
-    return {"clients": clients}
+    return {
+        "clients": [
+            {
+                "client_id": r["client_id"],
+                "first_name": r["first_name"],
+                "last_name": r["last_name"]
+            } for r in rows
+        ]
+    }
 
-# ----------------------
-# SAVE ATTENDANCE (ONLY ONE VERSION)
-# ----------------------
+# =========================================================
+# LOAD ATTENDANCE
+# =========================================================
 
-from pydantic import BaseModel
-from typing import List
+@app.get("/attendance/load")
+def load_attendance(group: str):
+    conn = get_conn()
+    cur = conn.cursor()
 
-class SyncPayload(BaseModel):
-    clients: List[dict]
+    cur.execute("""
+        SELECT a.client_id, a.attended_date, a.present
+        FROM attendance a
+        JOIN clients c ON a.client_id = c.client_id
+        WHERE c.group_name = ?
+    """, (group,))
 
-@app.post("/sync")
-def sync_clients(payload: SyncPayload):
+    rows = cur.fetchall()
+    conn.close()
 
+    selected = {}
+    for r in rows:
+        key = f"{r['client_id']}_{r['attended_date']}"
+        selected[key] = True
 
-# ----------------------
-# UI
-# ----------------------
+    return {"selected": selected}
+
+# =========================================================
+# SAVE ATTENDANCE
+# =========================================================
+
+class SavePayload(BaseModel):
+    selected: Dict[str, List[str]]
+    finalize_date: str | None = None
+
+@app.post("/attendance/save")
+def save_attendance(payload: SavePayload):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    saved = 0
+
+    # SAVE PRESENT
+    for client_id, dates in payload.selected.items():
+        for d in dates:
+            cur.execute("""
+            INSERT INTO attendance (client_id, attended_date, present)
+            VALUES (?, ?, 1)
+            ON CONFLICT(client_id, attended_date) DO UPDATE SET
+                present=1
+            """, (client_id, d))
+            saved += 1
+
+    # FINALIZE DATE
+    if payload.finalize_date:
+        cur.execute("""
+        UPDATE attendance
+        SET finalized = 1
+        WHERE attended_date = ?
+        """, (payload.finalize_date,))
+
+    conn.commit()
+    conn.close()
+
+    return {"saved": saved}
+
+# =========================================================
+# UI (YOUR BOARD — ENHANCED)
+# =========================================================
 
 @app.get("/attendance", response_class=HTMLResponse)
 def attendance_page():
@@ -189,6 +208,7 @@ td, th { border:1px solid #334155; padding:10px; text-align:center; }
 .name { text-align:left; background:#1f2937; padding-left:12px; min-width:180px; }
 .cell { width:40px; height:40px; cursor:pointer; }
 .active { background:#22c55e; }
+.locked { background:#475569; }
 th { background:#1e293b; }
 </style>
 </head>
@@ -217,6 +237,8 @@ Days:
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
+<button onclick="finalize()">Finalize</button>
+<button onclick="wakeServer()">Wake Server</button>
 </div>
 
 <table id="grid"></table>
@@ -231,9 +253,7 @@ function getDays(){
 function buildDates(){
     let s=new Date(start.value), e=new Date(end.value), d=getDays(), arr=[];
     while(s<=e){
-        if(d.includes(s.getDay())){
-            arr.push(s.toISOString().slice(0,10));
-        }
+        if(d.includes(s.getDay())) arr.push(s.toISOString().slice(0,10));
         s.setDate(s.getDate()+1);
     }
     return arr;
@@ -241,10 +261,17 @@ function buildDates(){
 
 async function loadBoard(){
     let g=group.value;
-    let res=await fetch("/attendance/data?group="+encodeURIComponent(g));
-    let data=await res.json();
-    state.clients=data.clients;
-    state.dates=buildDates();
+
+    let clientsRes = await fetch("/attendance/data?group="+g);
+    let clientsData = await clientsRes.json();
+
+    let attRes = await fetch("/attendance/load?group="+g);
+    let attData = await attRes.json();
+
+    state.clients = clientsData.clients;
+    state.selected = attData.selected || {};
+    state.dates = buildDates();
+
     render();
 }
 
@@ -258,7 +285,7 @@ function render(){
         for(let d of state.dates){
             let k=c.client_id+"_"+d;
             let cls=state.selected[k]?"cell active":"cell";
-            html+="<td class='"+cls+"' onclick=\"toggle('"+c.client_id+"','"+d+"')\"></td>";
+            html+="<td class='"+cls+"' onclick=\\"toggle('"+c.client_id+"','"+d+"')\\"></td>";
         }
         html+="</tr>";
     }
@@ -281,14 +308,31 @@ async function saveBoard(){
         payload[id].push(d);
     }
 
-    let res=await fetch("/attendance/save",{
+    await fetch("/attendance/save",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({selected:payload})
     });
 
-    let data=await res.json();
-    alert("Saved "+data.saved);
+    alert("Saved");
+}
+
+async function finalize(){
+    let d=prompt("Enter date to finalize (YYYY-MM-DD)");
+    if(!d) return;
+
+    await fetch("/attendance/save",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({selected:{}, finalize_date:d})
+    });
+
+    alert("Finalized "+d);
+}
+
+async function wakeServer(){
+    await fetch("/wake");
+    alert("Server Awake");
 }
 </script>
 

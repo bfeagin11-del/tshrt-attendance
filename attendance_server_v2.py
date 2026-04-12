@@ -51,6 +51,22 @@ def init_db():
 
 init_db()
 
+def upgrade_db():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("ALTER TABLE attendance ADD COLUMN present INTEGER DEFAULT 1")
+    except:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE attendance ADD COLUMN finalized INTEGER DEFAULT 0")
+    except:
+        pass
+
+    conn.commit()
+    conn.close()
 # =========================================================
 # DEBUG / WAKE
 # =========================================================

@@ -294,11 +294,21 @@ function getDays(){
 }
 
 function buildDates(){
-    let s=new Date(start.value), e=new Date(end.value), d=getDays(), arr=[];
-    while(s<=e){
-        if(d.includes(s.getDay())) arr.push(s.toISOString().slice(0,10));
-        s.setDate(s.getDate()+1);
+    let s = new Date(start.value + "T12:00:00");
+    let e = new Date(end.value + "T12:00:00");
+    let d = getDays();
+    let arr = [];
+
+    while (s <= e) {
+        if (d.includes(s.getDay())) {
+            let yyyy = s.getFullYear();
+            let mm = String(s.getMonth() + 1).padStart(2, "0");
+            let dd = String(s.getDate()).padStart(2, "0");
+            arr.push(`${yyyy}-${mm}-${dd}`);
+        }
+        s.setDate(s.getDate() + 1);
     }
+
     return arr;
 }
 
@@ -315,13 +325,34 @@ async function loadBoard(){
     state.selected = attData.selected || {};
     state.dates = buildDates();
 
+function formatHeaderDate(dateStr) {
+    const dt = new Date(dateStr + "T12:00:00");
+
+    const weekdays = [
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday"
+    ];
+
+    const months = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ];
+
+    const dayName = weekdays[dt.getDay()];
+    const dayNum = dt.getDate();
+    const monthName = months[dt.getMonth()];
+    const yearShort = String(dt.getFullYear()).slice(-2);
+
+    return `${dayName}, ${dayNum} ${monthName} ${yearShort}`;
+}
     render();
 }
 
 function render(){
     let html="<tr><th class='name'>Name</th>";
-    for(let d of state.dates){ html+="<th>"+d.slice(5)+"</th>"; }
-    html+="</tr>";
+    for (let d of state.dates) {
+        html += "<th>" + formatHeaderDate(d) + "</th>";
+    }
 
     for(let c of state.clients){
         html+="<tr><td class='name'>"+c.last_name+", "+c.first_name+"</td>";

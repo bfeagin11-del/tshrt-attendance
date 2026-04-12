@@ -238,6 +238,7 @@ End: <input type="date" id="end" value="2026-04-20">
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
+<button onclick="finalize()">Finalize</button>
 <button onclick="wake()">Wake</button>
 
 <table id="grid"></table>
@@ -269,19 +270,28 @@ function formatDate(d){
 }
 
 async function loadBoard(){
-    let g=group.value;
+    try {
+        let g = group.value;
 
-    let c=await fetch("/attendance/data?group="+encodeURIComponent(g));
-    let clients=await c.json();
+        let c = await fetch("/attendance/data?group=" + encodeURIComponent(g));
+        let clients = await c.json();
 
-    let a=await fetch("/attendance/load?group="+encodeURIComponent(g));
-    let att=await a.json();
+        let a = await fetch("/attendance/load?group=" + encodeURIComponent(g));
+        let att = await a.json();
 
-    state.clients=clients.clients;
-    state.selected=att.selected;
-    state.dates=buildDates();
+        console.log("CLIENTS:", clients);
+        console.log("ATTENDANCE:", att);
 
-    render();
+        state.clients = clients.clients || [];
+        state.selected = att.selected || {};
+        state.dates = buildDates();
+
+        render();
+
+    } catch (err) {
+        console.error("LOAD ERROR:", err);
+        alert("Load failed — check console (F12)");
+    }
 }
 
 function render(){
@@ -326,6 +336,21 @@ async function saveBoard(){
     alert("Saved");
 }
 
+async function finalize(){
+    let d = prompt("Enter date to finalize (YYYY-MM-DD)");
+    if (!d) return;
+
+    await fetch("/attendance/save", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            selected: {},
+            finalize_date: d
+        })
+    });
+
+    alert("Finalized " + d);
+}
 async function wake(){
     await fetch("/wake");
     alert("Awake");

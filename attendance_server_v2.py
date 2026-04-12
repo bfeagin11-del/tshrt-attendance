@@ -75,13 +75,23 @@ upgrade_db()
 # DEBUG / WAKE
 # =========================================================
 
-@app.get("/debug")
-def debug():
-    return {"status": "server running"}
+@app.get("/debug/clients")
+def debug_clients():
+    conn = get_conn()
+    cur = conn.cursor()
 
-@app.get("/wake")
-def wake():
-    return {"status": "awake"}
+    rows = cur.execute("""
+        SELECT client_id, display_name, first_name, last_name, group_name
+        FROM clients
+        ORDER BY group_name, last_name, first_name
+    """).fetchall()
+
+    conn.close()
+
+    return {
+        "count": len(rows),
+        "clients": [dict(r) for r in rows]
+    }
 
 # =========================================================
 # SYNC (CLEAN — ONLY ONE VERSION)

@@ -49,8 +49,9 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-upgrade_db()
+def init_db():
+    ...
+
 def upgrade_db():
     conn = get_conn()
     cur = conn.cursor()
@@ -67,6 +68,9 @@ def upgrade_db():
 
     conn.commit()
     conn.close()
+
+init_db()
+upgrade_db()
 # =========================================================
 # DEBUG / WAKE
 # =========================================================

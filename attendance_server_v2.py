@@ -3,15 +3,16 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 app = FastAPI()
 
-# =========================================================
-# DB SETUP
-# =========================================================
-
 DB_PATH = "/data/cloud.db"
+
+
+# =========================================================
+# DB
+# =========================================================
 
 def get_conn():
     os.makedirs("/data", exist_ok=True)
@@ -53,12 +54,12 @@ def upgrade_db():
 
     try:
         cur.execute("ALTER TABLE attendance ADD COLUMN present INTEGER DEFAULT 1")
-    except:
+    except Exception:
         pass
 
     try:
         cur.execute("ALTER TABLE attendance ADD COLUMN finalized INTEGER DEFAULT 0")
-    except:
+    except Exception:
         pass
 
     conn.commit()
@@ -67,49 +68,119 @@ def upgrade_db():
 init_db()
 upgrade_db()
 
+
 # =========================================================
-# WAKE
+# MODELS
 # =========================================================
+
+class SyncPayload(BaseModel):
+    clients: List[dict]
+
+class SavePayload(BaseModel):
+    selected: Dict[str, List[str]]
+    finalize_date: Optional[str] = None
+
+class FinalizePayload(BaseModel):
+    date: str
+
+
+# =========================================================
+# UTILS
+# =========================================================
+
+def parse_name(display_name: str):
+    display_name = (display_name or "").strip()
+    if not display_name:
+        return "", ""
+
+    if "," in display_name:
+        parts = [p.strip() for p in display_name.split(",", 1)]
+        last = parts[0]
+        first = parts[1] if len(parts) > 1 else ""
+        return first, last
+
+    parts = display_name.split()
+    if len(parts) >= 2:
+        return parts[0], " ".join(parts[1:])
+    if len(parts) == 1:
+        return parts[0], ""
+    return "", ""
+
+
+# =========================================================
+# BASIC ROUTES
+# =========================================================
+
+@app.get("/")
+def home():
+    return {"ok": True, "service": "TSHRT Attendance"}
 
 @app.get("/wake")
 def wake():
     return {"status": "awake"}
 
+@app.get("/debug/clients")
+def debug_clients():
+    conn = get_conn()
+    cur = conn.cursor()
+    rows = cur.execute("""
+        SELECT client_id, display_name, first_name, last_name, group_name
+        FROM clients
+        ORDER BY group_name, last_name, first_name
+    """).fetchall()
+    conn.close()
+
+    return {
+        "count": len(rows),
+        "clients": [dict(r) for r in rows]
+    }
+
+
 # =========================================================
 # SYNC
 # =========================================================
-
-class SyncPayload(BaseModel):
-    clients: List[dict]
 
 @app.post("/sync")
 def sync_clients(payload: SyncPayload):
     conn = get_conn()
     cur = conn.cursor()
 
+    count = 0
+
     for c in payload.clients:
+        client_id = str(c.get("client_id", "")).strip()
+        display_name = str(c.get("display_name", "")).strip()
+        first_name = str(c.get("first_name", "") or "").strip()
+        last_name = str(c.get("last_name", "") or "").strip()
+        group_name = str(c.get("group_name", "") or "").strip()
+
+        if not client_id:
+            continue
+
+        if (not first_name or not last_name) and display_name:
+            p_first, p_last = parse_name(display_name)
+            first_name = first_name or p_first
+            last_name = last_name or p_last
+
         cur.execute("""
         INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(client_id) DO UPDATE SET
-            display_name=excluded.display_name,
-            first_name=excluded.first_name,
-            last_name=excluded.last_name,
-            group_name=excluded.group_name
-        """, (
-            c.get("client_id"),
-            c.get("display_name"),
-            c.get("first_name"),
-            c.get("last_name"),
-            c.get("group_name")
-        ))
+            display_name = excluded.display_name,
+            first_name = excluded.first_name,
+            last_name = excluded.last_name,
+            group_name = excluded.group_name
+        """, (client_id, display_name, first_name, last_name, group_name))
+        count += 1
 
     conn.commit()
     conn.close()
-    return {"status": "synced"}
+
+    return {"ok": True, "count": count}
+
 
 # =========================================================
-# LOAD CLIENTS
+# ATTENDANCE DATA
 # =========================================================
 
 @app.get("/attendance/data")
@@ -118,36 +189,34 @@ def attendance_data(group: str):
     cur = conn.cursor()
 
     rows = cur.execute("""
-        SELECT *
+        SELECT client_id, first_name, last_name, display_name, group_name
         FROM clients
-        WHERE LOWER(TRIM(COALESCE(group_name,''))) = LOWER(TRIM(?))
-        ORDER BY last_name, first_name
+        WHERE LOWER(TRIM(COALESCE(group_name, ''))) = LOWER(TRIM(?))
+        ORDER BY last_name, first_name, display_name
     """, (group,)).fetchall()
 
     conn.close()
 
     clients = []
     for r in rows:
-        first = r["first_name"] or ""
-        last = r["last_name"] or ""
+        first_name = (r["first_name"] or "").strip()
+        last_name = (r["last_name"] or "").strip()
+        display_name = (r["display_name"] or "").strip()
 
-        if (not first or not last) and r["display_name"]:
-            if "," in r["display_name"]:
-                parts = [p.strip() for p in r["display_name"].split(",", 1)]
-                last = last or parts[0]
-                first = first or (parts[1] if len(parts) > 1 else "")
+        if (not first_name or not last_name) and display_name:
+            p_first, p_last = parse_name(display_name)
+            first_name = first_name or p_first
+            last_name = last_name or p_last
 
         clients.append({
             "client_id": r["client_id"],
-            "first_name": first,
-            "last_name": last
+            "first_name": first_name,
+            "last_name": last_name,
+            "display_name": display_name
         })
 
-    return {"clients": clients}
+    return {"ok": True, "clients": clients}
 
-# =========================================================
-# LOAD ATTENDANCE
-# =========================================================
 
 @app.get("/attendance/load")
 def load_attendance(group: str):
@@ -155,10 +224,19 @@ def load_attendance(group: str):
     cur = conn.cursor()
 
     rows = cur.execute("""
-        SELECT a.client_id, a.attended_date
+        SELECT a.client_id, a.attended_date, a.present
         FROM attendance a
         JOIN clients c ON a.client_id = c.client_id
-        WHERE LOWER(TRIM(COALESCE(c.group_name,''))) = LOWER(TRIM(?))
+        WHERE LOWER(TRIM(COALESCE(c.group_name, ''))) = LOWER(TRIM(?))
+          AND COALESCE(a.present, 1) = 1
+    """, (group,)).fetchall()
+
+    finalized_rows = cur.execute("""
+        SELECT DISTINCT attended_date
+        FROM attendance a
+        JOIN clients c ON a.client_id = c.client_id
+        WHERE LOWER(TRIM(COALESCE(c.group_name, ''))) = LOWER(TRIM(?))
+          AND COALESCE(a.finalized, 0) = 1
     """, (group,)).fetchall()
 
     conn.close()
@@ -167,38 +245,98 @@ def load_attendance(group: str):
     for r in rows:
         selected[f"{r['client_id']}_{r['attended_date']}"] = True
 
-    return {"selected": selected}
+    finalized_dates = [r["attended_date"] for r in finalized_rows]
+
+    return {
+        "ok": True,
+        "selected": selected,
+        "finalized_dates": finalized_dates
+    }
+
 
 # =========================================================
-# SAVE ATTENDANCE
+# SAVE / FINALIZE
 # =========================================================
-
-class SavePayload(BaseModel):
-    selected: Dict[str, List[str]]
-    finalize_date: str | None = None
 
 @app.post("/attendance/save")
 def save_attendance(payload: SavePayload):
     conn = get_conn()
     cur = conn.cursor()
 
+    # Current finalized dates
+    finalized_rows = cur.execute("""
+        SELECT DISTINCT attended_date
+        FROM attendance
+        WHERE COALESCE(finalized, 0) = 1
+    """).fetchall()
+    finalized_dates = {r["attended_date"] for r in finalized_rows}
+
+    # Remove all NON-finalized attendance first
+    cur.execute("""
+        DELETE FROM attendance
+        WHERE COALESCE(finalized, 0) = 0
+    """)
+
+    # Reinsert current selected values, skipping finalized dates
     for client_id, dates in payload.selected.items():
         for d in dates:
+            if d in finalized_dates:
+                continue
+
             cur.execute("""
-            INSERT INTO attendance (client_id, attended_date, present)
-            VALUES (?, ?, 1)
-            ON CONFLICT(client_id, attended_date) DO UPDATE SET present=1
+            INSERT INTO attendance (client_id, attended_date, present, finalized)
+            VALUES (?, ?, 1, 0)
+            ON CONFLICT(client_id, attended_date) DO UPDATE SET
+                present = 1
             """, (client_id, d))
 
+    # Optional finalize one date
     if payload.finalize_date:
         cur.execute("""
-        UPDATE attendance SET finalized=1 WHERE attended_date=?
+            UPDATE attendance
+            SET finalized = 1
+            WHERE attended_date = ?
         """, (payload.finalize_date,))
 
     conn.commit()
     conn.close()
 
-    return {"status": "saved"}
+    return {"ok": True, "status": "saved"}
+
+
+@app.post("/attendance/finalize")
+def finalize_date(payload: FinalizePayload):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE attendance
+        SET finalized = 1
+        WHERE attended_date = ?
+    """, (payload.date,))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "date": payload.date, "action": "finalized"}
+
+
+@app.post("/attendance/unfinalize")
+def unfinalize_date(payload: FinalizePayload):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE attendance
+        SET finalized = 0
+        WHERE attended_date = ?
+    """, (payload.date,))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "date": payload.date, "action": "unfinalized"}
+
 
 # =========================================================
 # UI
@@ -207,22 +345,33 @@ def save_attendance(payload: SavePayload):
 @app.get("/attendance", response_class=HTMLResponse)
 def attendance_page():
     return """
+<!doctype html>
 <html>
 <head>
+<meta charset="utf-8">
+<title>TSHRT Attendance Board</title>
 <style>
-body { background:#0f172a; color:white; font-family:sans-serif; }
+body { background:#0f172a; color:white; font-family:Arial, sans-serif; margin:0; padding:18px; }
+h2 { margin:0 0 16px 0; }
+.controls { margin-bottom:16px; }
 table { border-collapse:collapse; }
 td, th { border:1px solid #334155; padding:8px; text-align:center; }
-.name { text-align:left; background:#1f2937; min-width:180px; }
-.cell { width:40px; height:40px; cursor:pointer; }
+.name { text-align:left; background:#1f2937; min-width:180px; position:sticky; left:0; z-index:2; }
+th { background:#1e293b; font-size:12px; min-width:86px; vertical-align:bottom; }
+.cell { width:40px; height:40px; cursor:pointer; background:#0b1836; }
 .active { background:#22c55e; }
-th { background:#1e293b; font-size:12px; }
+.finalized-col { box-shadow: inset 0 0 0 2px #d4af37; }
+.locked { background:#475569; cursor:not-allowed; }
+.wrap { overflow-x:auto; }
+button { margin-right:6px; }
+.small { font-size:12px; color:#cbd5e1; margin-top:10px; }
 </style>
 </head>
 <body>
 
 <h2>TSHRT Attendance Board</h2>
 
+<div class="controls">
 Group:
 <select id="group">
 <option>ABC Class</option>
@@ -233,127 +382,230 @@ Group:
 Start: <input type="date" id="start" value="2026-03-09">
 End: <input type="date" id="end" value="2026-04-20">
 
-<label><input type="checkbox" value="1" checked>Mon</label>
-<label><input type="checkbox" value="3" checked>Wed</label>
+Days:
+<label><input type="checkbox" class="daybox" value="1" checked>Mon</label>
+<label><input type="checkbox" class="daybox" value="3" checked>Wed</label>
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
-<button onclick="finalize()">Finalize</button>
-<button onclick="wake()">Wake</button>
+<button onclick="finalizeDate()">Finalize</button>
+<button onclick="unfinalizeDate()">Unfinalize</button>
+<button onclick="wakeServer()">Wake</button>
+</div>
 
-<table id="grid"></table>
+<div class="small">Gold border = finalized / locked date.</div>
+
+<div class="wrap">
+    <table id="grid"></table>
+</div>
 
 <script>
-let state={clients:[],dates:[],selected:{}};
+let state = {
+    clients: [],
+    dates: [],
+    selected: {},
+    finalizedDates: new Set()
+};
 
-function buildDates(){
-    let s=new Date(start.value+"T12:00:00");
-    let e=new Date(end.value+"T12:00:00");
-    let arr=[];
-    let days=[1,3];
+function getSelectedDays() {
+    return Array.from(document.querySelectorAll(".daybox:checked"))
+        .map(c => parseInt(c.value));
+}
 
-    while(s<=e){
-        if(days.includes(s.getDay())){
-            let y=s.getFullYear();
-            let m=String(s.getMonth()+1).padStart(2,"0");
-            let d=String(s.getDate()).padStart(2,"0");
+function buildDates() {
+    let s = new Date(document.getElementById("start").value + "T12:00:00");
+    let e = new Date(document.getElementById("end").value + "T12:00:00");
+    let days = getSelectedDays();
+    let arr = [];
+
+    while (s <= e) {
+        if (days.includes(s.getDay())) {
+            let y = s.getFullYear();
+            let m = String(s.getMonth() + 1).padStart(2, "0");
+            let d = String(s.getDate()).padStart(2, "0");
             arr.push(`${y}-${m}-${d}`);
         }
-        s.setDate(s.getDate()+1);
+        s.setDate(s.getDate() + 1);
     }
     return arr;
 }
 
-function formatDate(d){
-    let dt=new Date(d+"T12:00:00");
-    return dt.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+function formatHeaderDate(dateStr) {
+    const dt = new Date(dateStr + "T12:00:00");
+    const weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const dayName = weekdays[dt.getDay()];
+    const dayNum = dt.getDate();
+    const monthName = months[dt.getMonth()];
+    const yearShort = String(dt.getFullYear()).slice(-2);
+    return `${dayName}, ${dayNum} ${monthName} ${yearShort}`;
 }
 
-async function loadBoard(){
+function safeDisplayName(c) {
+    if ((c.last_name || "").trim() || (c.first_name || "").trim()) {
+        return `${c.last_name || ""}, ${c.first_name || ""}`.replace(/^,\\s*/, "").trim();
+    }
+    return c.display_name || "Unknown";
+}
+
+async function loadBoard() {
     try {
-        let g = group.value;
+        let g = document.getElementById("group").value;
 
-        let c = await fetch("/attendance/data?group=" + encodeURIComponent(g));
-        let clients = await c.json();
+        let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
+        let clientsData = await clientsRes.json();
 
-        let a = await fetch("/attendance/load?group=" + encodeURIComponent(g));
-        let att = await a.json();
+        let attRes = await fetch("/attendance/load?group=" + encodeURIComponent(g));
+        let attData = await attRes.json();
 
-        console.log("CLIENTS:", clients);
-        console.log("ATTENDANCE:", att);
+        if (!clientsRes.ok || clientsData.ok === false) {
+            throw new Error("Client load failed");
+        }
 
-        state.clients = clients.clients || [];
-        state.selected = att.selected || {};
+        if (!attRes.ok || attData.ok === false) {
+            throw new Error("Attendance load failed");
+        }
+
+        state.clients = clientsData.clients || [];
+        state.selected = attData.selected || {};
+        state.finalizedDates = new Set(attData.finalized_dates || []);
         state.dates = buildDates();
 
         render();
-
     } catch (err) {
         console.error("LOAD ERROR:", err);
-        alert("Load failed — check console (F12)");
+        alert("Load failed. Press F12 and check Console.");
     }
 }
 
-function render(){
-    let html="<tr><th>Name</th>";
-    state.dates.forEach(d=>html+="<th>"+formatDate(d)+"</th>");
-    html+="</tr>";
+function render() {
+    let html = "<tr><th class='name'>Name</th>";
 
-    state.clients.forEach(c=>{
-        html+="<tr><td class='name'>"+c.last_name+", "+c.first_name+"</td>";
-        state.dates.forEach(d=>{
-            let k=c.client_id+"_"+d;
-            let cls=state.selected[k]?"cell active":"cell";
-            html+="<td class='"+cls+"' onclick=\"toggle('"+c.client_id+"','"+d+"')\"></td>";
-        });
-        html+="</tr>";
-    });
+    for (let d of state.dates) {
+        let cls = state.finalizedDates.has(d) ? "finalized-col" : "";
+        html += "<th class='" + cls + "'>" + formatHeaderDate(d) + "</th>";
+    }
+    html += "</tr>";
 
-    grid.innerHTML=html;
+    for (let c of state.clients) {
+        html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
+
+        for (let d of state.dates) {
+            let key = c.client_id + "_" + d;
+            let classes = state.selected[key] ? "cell active" : "cell";
+            let locked = state.finalizedDates.has(d);
+
+            if (locked) classes += " locked finalized-col";
+
+            if (locked) {
+                html += "<td class='" + classes + "'></td>";
+            } else {
+                html += "<td class='" + classes + "' onclick=\\"toggleCell('" + c.client_id + "','" + d + "')\\"></td>";
+            }
+        }
+
+        html += "</tr>";
+    }
+
+    document.getElementById("grid").innerHTML = html;
 }
 
-function toggle(id,d){
-    let k=id+"_"+d;
-    state.selected[k]?delete state.selected[k]:state.selected[k]=true;
+function toggleCell(clientId, dateStr) {
+    if (state.finalizedDates.has(dateStr)) return;
+
+    let key = clientId + "_" + dateStr;
+    if (state.selected[key]) {
+        delete state.selected[key];
+    } else {
+        state.selected[key] = true;
+    }
     render();
 }
 
-async function saveBoard(){
-    let payload={};
-    for(let k in state.selected){
-        let [id,...d]=k.split("_");
-        d=d.join("_");
-        if(!payload[id])payload[id]=[];
-        payload[id].push(d);
+async function saveBoard() {
+    try {
+        let payload = {};
+
+        for (let key in state.selected) {
+            let parts = key.split("_");
+            let clientId = parts[0];
+            let dateStr = parts.slice(1).join("_");
+
+            if (!payload[clientId]) payload[clientId] = [];
+            payload[clientId].push(dateStr);
+        }
+
+        let res = await fetch("/attendance/save", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ selected: payload })
+        });
+
+        let data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error("Save failed");
+
+        alert("Saved");
+        await loadBoard();
+    } catch (err) {
+        console.error("SAVE ERROR:", err);
+        alert("Save failed.");
     }
-
-    await fetch("/attendance/save",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({selected:payload})
-    });
-
-    alert("Saved");
 }
 
-async function finalize(){
+async function finalizeDate() {
     let d = prompt("Enter date to finalize (YYYY-MM-DD)");
     if (!d) return;
 
-    await fetch("/attendance/save", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            selected: {},
-            finalize_date: d
-        })
-    });
+    try {
+        await saveBoard();
 
-    alert("Finalized " + d);
+        let res = await fetch("/attendance/finalize", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ date: d })
+        });
+
+        let data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error("Finalize failed");
+
+        alert("Finalized " + d);
+        await loadBoard();
+    } catch (err) {
+        console.error("FINALIZE ERROR:", err);
+        alert("Finalize failed.");
+    }
 }
-async function wake(){
-    await fetch("/wake");
-    alert("Awake");
+
+async function unfinalizeDate() {
+    let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
+    if (!d) return;
+
+    try {
+        let res = await fetch("/attendance/unfinalize", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ date: d })
+        });
+
+        let data = await res.json();
+        if (!res.ok || data.ok === false) throw new Error("Unfinalize failed");
+
+        alert("Unfinalized " + d);
+        await loadBoard();
+    } catch (err) {
+        console.error("UNFINALIZE ERROR:", err);
+        alert("Unfinalize failed.");
+    }
+}
+
+async function wakeServer() {
+    try {
+        await fetch("/wake");
+        alert("Server Awake");
+    } catch (err) {
+        console.error("WAKE ERROR:", err);
+        alert("Wake failed.");
+    }
 }
 </script>
 

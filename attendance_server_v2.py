@@ -64,12 +64,19 @@ def upgrade_db():
     except Exception:
         pass
 
+    # ✅ ADD THESE TWO BLOCKS
+    try:
+        cur.execute("ALTER TABLE clients ADD COLUMN baseline_score REAL DEFAULT 0")
+    except Exception:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE clients ADD COLUMN snapshot_score REAL DEFAULT 0")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
-
-
-init_db()
-upgrade_db()
 
 
 # =========================================================

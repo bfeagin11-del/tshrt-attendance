@@ -136,25 +136,38 @@ def attendance_data(group: str):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT *
+    rows = cur.execute("""
+        SELECT client_id, first_name, last_name, display_name, group_name
         FROM clients
-        WHERE group_name = ?
+        WHERE LOWER(TRIM(COALESCE(group_name, ''))) = LOWER(TRIM(?))
         ORDER BY last_name, first_name
-    """, (group,))
+    """, (group,)).fetchall()
 
-    rows = cur.fetchall()
     conn.close()
 
-    return {
-        "clients": [
-            {
-                "client_id": r["client_id"],
-                "first_name": r["first_name"],
-                "last_name": r["last_name"]
-            } for r in rows
-        ]
-    }
+    clients = []
+    for r in rows:
+        first_name = r["first_name"] or ""
+        last_name = r["last_name"] or ""
+
+        if (not first_name or not last_name) and r["display_name"]:
+            if "," in r["display_name"]:
+                parts = [p.strip() for p in r["display_name"].split(",", 1)]
+                last_name = last_name or parts[0]
+                first_name = first_name or (parts[1] if len(parts) > 1 else "")
+            else:
+                parts = r["display_name"].split()
+                if len(parts) >= 2:
+                    first_name = first_name or parts[0]
+                    last_name = last_name or " ".join(parts[1:])
+
+        clients.append({
+            "client_id": r["client_id"],
+            "first_name": first_name,
+            "last_name": last_name,
+        })
+
+    return {"clients": clients}
 
 # =========================================================
 # LOAD ATTENDANCE

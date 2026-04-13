@@ -252,10 +252,11 @@ def save_attendance(payload: dict):
     group = payload.get("group")
     records = payload.get("selected_records", [])
 
-    sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # BUILD NAME → ID MAP
+    # Build name → ID map
     cur.execute("""
         SELECT client_id, display_name
         FROM clients
@@ -263,22 +264,21 @@ def save_attendance(payload: dict):
     """, (group,))
 
     name_to_id = {}
-    for cid, name in cur.fetchall():
-        name_to_id[name.strip().lower()] = cid
+    for row in cur.fetchall():
+        name_to_id[row["display_name"].strip().lower()] = row["client_id"]
 
     saved = 0
 
     for rec in records:
-        raw_name = rec.get("client_id", "").strip().lower()
-        attended_date = rec.get("attended_date")
+        raw = rec.get("client_id", "").strip().lower()
+        date = rec.get("attended_date")
 
-        # HANDLE BOTH FORMATS:
-        # "Carrasco, Eduardo" → "Eduardo Carrasco"
-        if "," in raw_name:
-            last, first = [x.strip() for x in raw_name.split(",")]
+        # Convert "Last, First" → "First Last"
+        if "," in raw:
+            last, first = [x.strip() for x in raw.split(",")]
             formatted = f"{first} {last}".lower()
         else:
-            formatted = raw_name
+            formatted = raw
 
         cid = name_to_id.get(formatted)
 
@@ -288,7 +288,7 @@ def save_attendance(payload: dict):
         cur.execute("""
             INSERT OR REPLACE INTO attendance (client_id, attended_date, present, finalized)
             VALUES (?, ?, 1, 0)
-        """, (cid, attended_date))
+        """, (cid, date))
 
         saved += 1
 

@@ -254,16 +254,21 @@ def save_attendance(payload: SavePayload):
 
     group = (payload.group or "").strip()
 
-    # Get clients for THIS group only
+    # Get clients in group
     client_rows = cur.execute(f"""
-        SELECT client_id
+        SELECT client_id, display_name
         FROM clients
         WHERE {group_match_sql()}
     """, (group,)).fetchall()
 
-    group_client_ids = {r["client_id"] for r in client_rows}
+    # Build lookup maps
+    id_set = {r["client_id"] for r in client_rows}
+    name_to_id = {
+        (r["display_name"] or "").strip().lower(): r["client_id"]
+        for r in client_rows
+    }
 
-    # Get finalized dates (never overwrite)
+    # Finalized dates (protect them)
     finalized_rows = cur.execute("""
         SELECT DISTINCT attended_date
         FROM attendance
@@ -272,22 +277,30 @@ def save_attendance(payload: SavePayload):
 
     finalized_dates = {r["attended_date"] for r in finalized_rows}
 
-    # Build selected set
     selected_set = set()
+
     for rec in payload.selected_records:
-        cid = str(rec.get("client_id", "")).strip()
+        raw_id = str(rec.get("client_id", "")).strip()
         dt = str(rec.get("attended_date", "")).strip()
 
-        if not cid or not dt:
+        if not raw_id or not dt:
             continue
-        if cid not in group_client_ids:
+
+        # 🔥 KEY FIX — resolve name → real ID
+        if raw_id in id_set:
+            cid = raw_id
+        else:
+            cid = name_to_id.get(raw_id.lower())
+
+        if not cid:
             continue
+
         if dt in finalized_dates:
             continue
 
         selected_set.add((cid, dt))
 
-    # DELETE only NON-finalized for THIS GROUP
+    # Delete ONLY non-finalized for this group
     cur.execute(f"""
         DELETE FROM attendance
         WHERE client_id IN (
@@ -296,7 +309,7 @@ def save_attendance(payload: SavePayload):
         AND COALESCE(finalized, 0) = 0
     """, (group,))
 
-    # INSERT fresh data
+    # Insert clean records
     for cid, dt in selected_set:
         cur.execute("""
             INSERT INTO attendance (client_id, attended_date, present, finalized)

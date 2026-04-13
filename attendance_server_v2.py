@@ -252,7 +252,7 @@ def save_attendance(payload: dict):
     group = payload.get("group")
     records = payload.get("selected_records", [])
 
-    conn = sqlite3.connect(DB_FILE)
+    sqlite3.connect(DB_PATH, check_same_thread=False)
     cur = conn.cursor()
 
     # BUILD NAME → ID MAP

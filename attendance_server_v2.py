@@ -248,83 +248,54 @@ def load_attendance(group: str):
 
 
 @app.post("/attendance/save")
-def save_attendance(payload: SavePayload):
-    conn = get_conn()
+def save_attendance(payload: dict):
+    group = payload.get("group")
+    records = payload.get("selected_records", [])
+
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
 
-    group = (payload.group or "").strip()
-
-    # Get clients in group
-    client_rows = cur.execute(f"""
+    # BUILD NAME → ID MAP
+    cur.execute("""
         SELECT client_id, display_name
         FROM clients
-        WHERE {group_match_sql()}
-    """, (group,)).fetchall()
+        WHERE LOWER(TRIM(group_name)) = LOWER(TRIM(?))
+    """, (group,))
 
-    # Build lookup maps
-    id_set = {r["client_id"] for r in client_rows}
-    name_to_id = {
-        (r["display_name"] or "").strip().lower(): r["client_id"]
-        for r in client_rows
-    }
+    name_to_id = {}
+    for cid, name in cur.fetchall():
+        name_to_id[name.strip().lower()] = cid
 
-    # Finalized dates (protect them)
-    finalized_rows = cur.execute("""
-        SELECT DISTINCT attended_date
-        FROM attendance
-        WHERE COALESCE(finalized, 0) = 1
-    """).fetchall()
+    saved = 0
 
-    finalized_dates = {r["attended_date"] for r in finalized_rows}
+    for rec in records:
+        raw_name = rec.get("client_id", "").strip().lower()
+        attended_date = rec.get("attended_date")
 
-    selected_set = set()
-
-    for rec in payload.selected_records:
-        raw_id = str(rec.get("client_id", "")).strip()
-        dt = str(rec.get("attended_date", "")).strip()
-
-        if not raw_id or not dt:
-            continue
-
-        # 🔥 KEY FIX — resolve name → real ID
-        if raw_id in id_set:
-            cid = raw_id
+        # HANDLE BOTH FORMATS:
+        # "Carrasco, Eduardo" → "Eduardo Carrasco"
+        if "," in raw_name:
+            last, first = [x.strip() for x in raw_name.split(",")]
+            formatted = f"{first} {last}".lower()
         else:
-            cid = name_to_id.get(raw_id.lower())
+            formatted = raw_name
+
+        cid = name_to_id.get(formatted)
 
         if not cid:
             continue
 
-        if dt in finalized_dates:
-            continue
-
-        selected_set.add((cid, dt))
-
-    # Delete ONLY non-finalized for this group
-    cur.execute(f"""
-        DELETE FROM attendance
-        WHERE client_id IN (
-            SELECT client_id FROM clients WHERE {group_match_sql()}
-        )
-        AND COALESCE(finalized, 0) = 0
-    """, (group,))
-
-    # Insert clean records
-    for cid, dt in selected_set:
         cur.execute("""
-            INSERT INTO attendance (client_id, attended_date, present, finalized)
+            INSERT OR REPLACE INTO attendance (client_id, attended_date, present, finalized)
             VALUES (?, ?, 1, 0)
-            ON CONFLICT(client_id, attended_date) DO UPDATE SET
-                present = 1
-        """, (cid, dt))
+        """, (cid, attended_date))
+
+        saved += 1
 
     conn.commit()
     conn.close()
 
-    return {
-        "ok": True,
-        "saved_count": len(selected_set)
-    }
+    return {"ok": True, "saved_count": saved}
 
 
 @app.post("/attendance/finalize")

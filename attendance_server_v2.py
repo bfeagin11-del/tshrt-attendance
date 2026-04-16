@@ -157,13 +157,14 @@ def build_leaderboard_data(group: str):
         else:
             name = display
 
-        attendance = r["attendance_count"] or 0
         baseline = r["baseline_score"] or 0
         snapshot = r["snapshot_score"] or 0
+        attendance = r["attendance_count"] or 0
+        previous = r["previous_total"] or 0
 
-        current = snapshot + attendance
-        lifetime = baseline + snapshot + attendance
-
+        current = baseline + snapshot + attendance
+        lifetime = previous + current
+        
         results.append({
             "client_id": r["client_id"],
             "name": name,

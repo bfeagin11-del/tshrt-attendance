@@ -182,14 +182,14 @@ def build_leaderboard_data(group: str):
         lifetime = previous + current
 
         results.append({
-            "client_id": r["client_id"],
-            "name": name,
-            "attendance": attendance,
-            "baseline": round(baseline, 2),
-            "snapshot": round(snapshot, 2),
-            "current_score": round(current, 2),
-            "lifetime_score": round(lifetime, 2),
-        })
+    "client_id": r["client_id"],
+    "name": name,
+    "attendance": attendance,
+    "baseline": round(baseline, 2),
+    "snapshot": round(snapshot, 2),
+    "current_score": round(current, 2),
+    "lifetime_score": round(lifetime, 2),
+})
 
     results.sort(key=lambda x: (-x["current_score"], -x["lifetime_score"], x["name"].lower()))
     return results

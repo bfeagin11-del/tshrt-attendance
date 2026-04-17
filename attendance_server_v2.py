@@ -453,7 +453,27 @@ def finalize_date(payload: DatePayload):
 
     return {"ok": True, "date": payload.date, "action": "finalized"}
 
+@app.post("/attendance/finalize_bulk")
+def finalize_bulk(payload: dict):
+    dates = payload.get("dates", [])
 
+    if not dates:
+        return {"ok": False, "message": "No dates provided"}
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for d in dates:
+        cur.execute("""
+            UPDATE attendance
+            SET finalized = 1
+            WHERE attended_date = ?
+        """, (d,))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "finalized_dates": dates}
 @app.post("/attendance/unfinalize")
 def unfinalize_date(payload: DatePayload):
     conn = get_conn()
@@ -635,7 +655,8 @@ Group:
 <option>Gym</option>
 <option>Personal</option>
 </select>
-
+<div id="dateSelector" style="margin-top:10px;"></div>
+          
 Start: <input type="date" id="start" value="2026-03-09">
 End: <input type="date" id="end" value="2026-04-20">
 
@@ -651,7 +672,7 @@ Days:
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
 <button onclick="finalizeDate()">Finalize</button>
-<button onclick="unfinalizeDate()">Unfinalize</button>
+<button onclick="finalizeSelected()">Finalize Selected Dates</button>
 <button onclick="wakeServer()">Wake</button>
 </div>
 
@@ -783,6 +804,21 @@ function toggleCell(clientId, dateStr) {
     render();
 }
 
+// Build date selector
+let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
+
+for (let d of state.dates) {
+    let checked = state.finalizedDates.has(d) ? "checked" : "";
+    selectorHTML += `
+        <label style="margin-right:10px;">
+            <input type="checkbox" class="finalizeBox" value="${d}" ${checked}>
+            ${formatHeaderDate(d)}
+        </label><br>
+    `;
+}
+
+document.getElementById("dateSelector").innerHTML = selectorHTML;
+
 async function saveBoard() {
     try {
         let groupName = document.getElementById("group").value;
@@ -846,6 +882,38 @@ async function finalizeDate() {
     }
 }
 
+async function finalizeSelected() {
+    let boxes = document.querySelectorAll(".finalizeBox:checked");
+    let dates = Array.from(boxes).map(b => b.value);
+
+    if (dates.length === 0) {
+        alert("No dates selected.");
+        return;
+    }
+
+    try {
+        await saveBoard();
+
+        let res = await fetch("/attendance/finalize_bulk", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ dates: dates })
+        });
+
+        let data = await res.json();
+
+        if (!res.ok || data.ok === false) {
+            throw new Error("Finalize failed");
+        }
+
+        alert("Finalized " + dates.length + " dates.");
+        await loadBoard();
+
+    } catch (err) {
+        console.error(err);
+        alert("Finalize failed.");
+    }
+}
 async function unfinalizeDate() {
     let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
     if (!d) return;

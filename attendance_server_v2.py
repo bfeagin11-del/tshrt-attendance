@@ -691,7 +691,14 @@ Days:
 <button onclick="wakeServer()">Wake</button>
 </div>
 
-<div id="dateSelector"></div>
+<h3 style="margin-top:10px;">Finalize Dates</h3>
+<div id="dateSelector" style="
+    margin-top:15px;
+    padding:10px;
+    border:1px solid #334155;
+    background:#111827;
+    border-radius:8px;
+"></div>
 
 <div class="legend">Gold border = finalized / locked date.</div>
 

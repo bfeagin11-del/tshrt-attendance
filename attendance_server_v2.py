@@ -73,10 +73,12 @@ def upgrade_db():
         cur.execute("ALTER TABLE clients ADD COLUMN snapshot_score REAL DEFAULT 0")
     except Exception:
         pass
+
     try:
         cur.execute("ALTER TABLE clients ADD COLUMN previous_total REAL DEFAULT 0")
     except Exception:
         pass
+
     conn.commit()
     conn.close()
 
@@ -145,7 +147,14 @@ def build_leaderboard_data(group: str):
             ON c.client_id = a.client_id
             AND COALESCE(a.present, 1) = 1
         WHERE {group_match_sql()}
-        GROUP BY c.client_id, c.first_name, c.last_name, c.display_name, c.baseline_score, c.snapshot_score
+        GROUP BY
+            c.client_id,
+            c.first_name,
+            c.last_name,
+            c.display_name,
+            c.baseline_score,
+            c.snapshot_score,
+            c.previous_total
     """, (group,)).fetchall()
 
     conn.close()
@@ -166,9 +175,12 @@ def build_leaderboard_data(group: str):
         attendance = r["attendance_count"] or 0
         previous = r["previous_total"] or 0
 
+        # Current = current challenge total
         current = baseline + snapshot + attendance
+
+        # Lifetime = past completed challenge total(s) + current challenge total
         lifetime = previous + current
-        
+
         results.append({
             "client_id": r["client_id"],
             "name": name,
@@ -203,9 +215,15 @@ def debug_clients():
     cur = conn.cursor()
 
     rows = cur.execute("""
-        SELECT client_id, display_name, first_name, last_name, group_name,
-               COALESCE(baseline_score, 0) AS baseline_score,
-               COALESCE(snapshot_score, 0) AS snapshot_score
+        SELECT
+            client_id,
+            display_name,
+            first_name,
+            last_name,
+            group_name,
+            COALESCE(baseline_score, 0) AS baseline_score,
+            COALESCE(snapshot_score, 0) AS snapshot_score,
+            COALESCE(previous_total, 0) AS previous_total
         FROM clients
         ORDER BY group_name, last_name, first_name
     """).fetchall()
@@ -347,7 +365,6 @@ def save_attendance(payload: SavePayload):
     conn = get_conn()
     cur = conn.cursor()
 
-    # Build lookup maps for this group
     rows = cur.execute(f"""
         SELECT client_id, display_name, first_name, last_name
         FROM clients
@@ -376,7 +393,6 @@ def save_attendance(payload: SavePayload):
             if straight_name:
                 name_to_id[straight_name] = cid
 
-    # Finalized dates must never be overwritten
     finalized_rows = cur.execute("""
         SELECT DISTINCT attended_date
         FROM attendance
@@ -393,7 +409,6 @@ def save_attendance(payload: SavePayload):
         if not raw_client or not attended_date:
             continue
 
-        # Accept either real ID or name
         if raw_client in valid_ids:
             cid = raw_client
         else:
@@ -407,7 +422,6 @@ def save_attendance(payload: SavePayload):
 
         selected_set.add((cid, attended_date))
 
-    # Delete only NON-finalized attendance for THIS GROUP
     cur.execute(f"""
         DELETE FROM attendance
         WHERE client_id IN (
@@ -418,7 +432,6 @@ def save_attendance(payload: SavePayload):
         AND COALESCE(finalized, 0) = 0
     """, (group,))
 
-    # Insert current selection
     for cid, attended_date in selected_set:
         cur.execute("""
             INSERT INTO attendance (client_id, attended_date, present, finalized)
@@ -453,6 +466,7 @@ def finalize_date(payload: DatePayload):
 
     return {"ok": True, "date": payload.date, "action": "finalized"}
 
+
 @app.post("/attendance/finalize_bulk")
 def finalize_bulk(payload: dict):
     dates = payload.get("dates", [])
@@ -474,6 +488,8 @@ def finalize_bulk(payload: dict):
     conn.close()
 
     return {"ok": True, "finalized_dates": dates}
+
+
 @app.post("/attendance/unfinalize")
 def unfinalize_date(payload: DatePayload):
     conn = get_conn()
@@ -629,7 +645,7 @@ def attendance_page():
 <style>
 body { background:#0f172a; color:white; font-family:Arial, sans-serif; margin:0; padding:18px; }
 h2 { margin:0 0 16px 0; }
-.controls { margin-bottom:16px; line-height: 2.0; }
+.controls { margin-bottom:16px; line-height:2.0; }
 table { border-collapse:collapse; }
 td, th { border:1px solid #334155; padding:8px; text-align:center; }
 .name { text-align:left; background:#1f2937; min-width:220px; position:sticky; left:0; z-index:2; }
@@ -640,8 +656,8 @@ th { background:#1e293b; font-size:12px; min-width:110px; vertical-align:bottom;
 .locked { background:#475569; cursor:not-allowed; }
 .wrap { overflow-x:auto; }
 button { margin-right:6px; }
-.small { font-size:12px; color:#cbd5e1; margin-top:10px; }
 .legend { margin-top:10px; font-size:12px; color:#cbd5e1; }
+#dateSelector { margin-top:10px; }
 </style>
 </head>
 <body>
@@ -655,8 +671,7 @@ Group:
 <option>Gym</option>
 <option>Personal</option>
 </select>
-<div id="dateSelector" style="margin-top:10px;"></div>
-          
+
 Start: <input type="date" id="start" value="2026-03-09">
 End: <input type="date" id="end" value="2026-04-20">
 
@@ -671,10 +686,12 @@ Days:
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
-<button onclick="finalizeDate()">Finalize</button>
 <button onclick="finalizeSelected()">Finalize Selected Dates</button>
+<button onclick="unfinalizeDate()">Unfinalize</button>
 <button onclick="wakeServer()">Wake</button>
 </div>
+
+<div id="dateSelector"></div>
 
 <div class="legend">Gold border = finalized / locked date.</div>
 
@@ -790,6 +807,18 @@ function render() {
     }
 
     document.getElementById("grid").innerHTML = html;
+
+    let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
+    for (let d of state.dates) {
+        let checked = state.finalizedDates.has(d) ? "checked" : "";
+        selectorHTML += `
+            <label style="margin-right:10px;">
+                <input type="checkbox" class="finalizeBox" value="${d}" ${checked}>
+                ${formatHeaderDate(d)}
+            </label><br>
+        `;
+    }
+    document.getElementById("dateSelector").innerHTML = selectorHTML;
 }
 
 function toggleCell(clientId, dateStr) {
@@ -803,21 +832,6 @@ function toggleCell(clientId, dateStr) {
     }
     render();
 }
-
-// Build date selector
-let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
-
-for (let d of state.dates) {
-    let checked = state.finalizedDates.has(d) ? "checked" : "";
-    selectorHTML += `
-        <label style="margin-right:10px;">
-            <input type="checkbox" class="finalizeBox" value="${d}" ${checked}>
-            ${formatHeaderDate(d)}
-        </label><br>
-    `;
-}
-
-document.getElementById("dateSelector").innerHTML = selectorHTML;
 
 async function saveBoard() {
     try {
@@ -856,32 +870,6 @@ async function saveBoard() {
     }
 }
 
-async function finalizeDate() {
-    let d = prompt("Enter date to finalize (YYYY-MM-DD)");
-    if (!d) return;
-
-    try {
-        await saveBoard();
-
-        let res = await fetch("/attendance/finalize", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ date: d })
-        });
-
-        let data = await res.json();
-        if (!res.ok || data.ok === false) {
-            throw new Error("Finalize failed");
-        }
-
-        alert("Finalized " + d);
-        await loadBoard();
-    } catch (err) {
-        console.error("FINALIZE ERROR:", err);
-        alert("Finalize failed.");
-    }
-}
-
 async function finalizeSelected() {
     let boxes = document.querySelectorAll(".finalizeBox:checked");
     let dates = Array.from(boxes).map(b => b.value);
@@ -908,12 +896,12 @@ async function finalizeSelected() {
 
         alert("Finalized " + dates.length + " dates.");
         await loadBoard();
-
     } catch (err) {
-        console.error(err);
+        console.error("FINALIZE ERROR:", err);
         alert("Finalize failed.");
     }
 }
+
 async function unfinalizeDate() {
     let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
     if (!d) return;

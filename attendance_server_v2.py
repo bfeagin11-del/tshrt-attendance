@@ -259,22 +259,36 @@ def sync_clients(payload: SyncPayload):
             first_name = first_name or p_first
             last_name = last_name or p_last
 
-        cur.execute("""
-        INSERT INTO clients (client_id, display_name, first_name, last_name, group_name)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(client_id) DO UPDATE SET
-            display_name = excluded.display_name,
-            first_name = excluded.first_name,
-            last_name = excluded.last_name,
-            group_name = excluded.group_name
-        """, (client_id, display_name, first_name, last_name, group_name))
-
-        count += 1
-
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "count": count}
+       cur.execute("""
+INSERT INTO clients (
+    client_id,
+    display_name,
+    first_name,
+    last_name,
+    group_name,
+    baseline_score,
+    snapshot_score,
+    previous_total
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(client_id) DO UPDATE SET
+    display_name = excluded.display_name,
+    first_name = excluded.first_name,
+    last_name = excluded.last_name,
+    group_name = excluded.group_name,
+    baseline_score = excluded.baseline_score,
+    snapshot_score = excluded.snapshot_score,
+    previous_total = excluded.previous_total
+""", (
+    client_id,
+    display_name,
+    first_name,
+    last_name,
+    group_name,
+    float(c.get("baseline_score", 0)),
+    float(c.get("snapshot_score", 0)),
+    float(c.get("previous_total", 0))
+))
 
 
 # =========================================================

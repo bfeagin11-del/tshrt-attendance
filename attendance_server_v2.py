@@ -73,7 +73,10 @@ def upgrade_db():
         cur.execute("ALTER TABLE clients ADD COLUMN snapshot_score REAL DEFAULT 0")
     except Exception:
         pass
-
+    try:
+        cur.execute("ALTER TABLE clients ADD COLUMN previous_total REAL DEFAULT 0")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -135,6 +138,7 @@ def build_leaderboard_data(group: str):
             c.display_name,
             COALESCE(c.baseline_score, 0) AS baseline_score,
             COALESCE(c.snapshot_score, 0) AS snapshot_score,
+            COALESCE(c.previous_total, 0) AS previous_total,
             COUNT(a.attended_date) AS attendance_count
         FROM clients c
         LEFT JOIN attendance a

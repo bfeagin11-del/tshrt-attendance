@@ -237,65 +237,6 @@ def debug_clients():
 # SYNC
 # =========================================================
 
-@app.post("/sync")
-def sync_clients(payload: SyncPayload):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    count = 0
-
-    for c in payload.clients:
-        client_id = str(c.get("client_id", "")).strip()
-        display_name = str(c.get("display_name", "") or "").strip()
-        first_name = str(c.get("first_name", "") or "").strip()
-        last_name = str(c.get("last_name", "") or "").strip()
-        group_name = str(c.get("group_name", "") or "").strip()
-
-        if not client_id:
-            continue
-
-        if (not first_name or not last_name) and display_name:
-            p_first, p_last = parse_name(display_name)
-            first_name = first_name or p_first
-            last_name = last_name or p_last
-
-        cur.execute("""
-            INSERT INTO clients (
-                client_id,
-                display_name,
-                first_name,
-                last_name,
-                group_name,
-                baseline_score,
-                snapshot_score,
-                previous_total
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(client_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                first_name = excluded.first_name,
-                last_name = excluded.last_name,
-                group_name = excluded.group_name,
-                baseline_score = excluded.baseline_score,
-                snapshot_score = excluded.snapshot_score,
-                previous_total = excluded.previous_total
-        """, (
-            client_id,
-            display_name,
-            first_name,
-            last_name,
-            group_name,
-            float(c.get("baseline_score", 0)),
-            float(c.get("snapshot_score", 0)),
-            float(c.get("previous_total", 0))
-        ))
-
-        count += 1
-
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "count": count}
 
 # =========================================================
 # ATTENDANCE DATA

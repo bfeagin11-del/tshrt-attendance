@@ -173,7 +173,7 @@ def build_leaderboard_data(group: str):
         baseline = r["baseline_score"] or 0
         snapshot = r["snapshot_score"] or 0
         attendance = r["attendance_count"] or 0
-        previous = r["previous_total"] or 0
+        previous = r["previous_total"] if "previous_total" in r.keys() else 0
 
         # Current = current challenge total
         current = baseline + snapshot + attendance

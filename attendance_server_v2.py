@@ -555,7 +555,7 @@ async function loadBoard(){
     let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
     let data = await res.json();
 
-    let html = "<tr><th>#</th><th>Name</th><th>Attendance</th><th>Current</th><th>Lifetime</th></tr>";
+    let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
     let i = 1;
     for (let r of data.leaderboard){
@@ -564,6 +564,8 @@ async function loadBoard(){
         html += "<td class='rank " + cls + "'>" + i + "</td>";
         html += "<td>" + r.name + "</td>";
         html += "<td>" + r.attendance + "</td>";
+        html += "<td>" + r.baseline + "</td>";
+        html += "<td>" + r.snapshot + "</td>";
         html += "<td>" + r.current_score + "</td>";
         html += "<td>" + r.lifetime_score + "</td>";
         html += "</tr>";

@@ -541,7 +541,53 @@ async function loadBoard(){
 </html>
 """
 
+@app.post("/sync")
+def sync_clients(payload: dict):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
+    clients = payload.get("clients", [])
+
+    inserted = 0
+
+    for c in clients:
+        cur.execute("""
+            INSERT INTO clients (
+                client_id,
+                display_name,
+                first_name,
+                last_name,
+                group_name,
+                baseline_score,
+                snapshot_score,
+                previous_total
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(client_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                first_name = excluded.first_name,
+                last_name = excluded.last_name,
+                group_name = excluded.group_name,
+                baseline_score = excluded.baseline_score,
+                snapshot_score = excluded.snapshot_score,
+                previous_total = excluded.previous_total
+        """, (
+            c.get("client_id"),
+            c.get("display_name"),
+            c.get("first_name"),
+            c.get("last_name"),
+            c.get("group_name"),
+            float(c.get("baseline_score", 0)),
+            float(c.get("snapshot_score", 0)),
+            float(c.get("previous_total", 0))
+        ))
+
+        inserted += 1
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "received": inserted}
 @app.get("/display", response_class=HTMLResponse)
 def display_page(group: str = "ABC Class"):
     return f"""

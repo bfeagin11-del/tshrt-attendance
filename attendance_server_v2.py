@@ -551,6 +551,26 @@ def sync_clients(payload: dict):
     inserted = 0
 
     for c in clients:
+
+        # ===== GET TEST DATA =====
+        tests = c.get("tests", [])
+
+        baseline = 0
+        latest = 0
+
+        # Extract valid scores
+        valid_scores = []
+        for t in tests:
+            if isinstance(t, dict) and t.get("score") is not None:
+                valid_scores.append(t.get("score"))
+
+        if valid_scores:
+            baseline = valid_scores[0]
+            latest = valid_scores[-1]
+
+        snapshot = latest - baseline
+
+        # ===== INSERT / UPDATE =====
         cur.execute("""
             INSERT INTO clients (
                 client_id,
@@ -577,8 +597,8 @@ def sync_clients(payload: dict):
             c.get("first_name"),
             c.get("last_name"),
             c.get("group_name"),
-            float(c.get("baseline_score", 0)),
-            float(c.get("snapshot_score", 0)),
+            float(baseline),
+            float(snapshot),
             float(c.get("previous_total", 0))
         ))
 
@@ -588,55 +608,6 @@ def sync_clients(payload: dict):
     conn.close()
 
     return {"ok": True, "received": inserted}
-@app.get("/display", response_class=HTMLResponse)
-def display_page(group: str = "ABC Class"):
-    return f"""
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>TSHRT Display Board</title>
-<style>
-body {{ background:#000; color:#fff; font-family:Arial; padding:24px; }}
-h1 {{ color:#fbbf24; text-align:center; margin-bottom:24px; }}
-#grid {{ display:grid; grid-template-columns:repeat(2, 1fr); gap:18px; max-width:1200px; margin:0 auto; }}
-.card {{ background:#111827; border:2px solid #334155; border-radius:14px; padding:18px; }}
-.name {{ font-size:28px; font-weight:bold; margin-bottom:10px; }}
-.score {{ font-size:22px; }}
-.small {{ color:#cbd5e1; font-size:16px; }}
-</style>
-</head>
-<body>
-<h1>TSHRT Display Board — {group}</h1>
-<div id="grid"></div>
-
-<script>
-async function loadDisplay(){{
-    let res = await fetch("/leaderboard?group=" + encodeURIComponent("{group}"));
-    let data = await res.json();
-
-    let html = "";
-    let rank = 1;
-
-    for (let r of data.leaderboard.slice(0, 10)){{
-        html += `
-        <div class="card">
-            <div class="name">#${{rank}} ${{r.name}}</div>
-            <div class="score">C: ${{r.current_score}} | L: ${{r.lifetime_score}}</div>
-            <div class="small">Attendance: ${{r.attendance}} | Δ: ${{r.snapshot}}</div>
-        </div>`;
-        rank++;
-    }}
-
-    document.getElementById("grid").innerHTML = html;
-}}
-
-loadDisplay();
-setInterval(loadDisplay, 30000);
-</script>
-</body>
-</html>
-"""
 
 
 # =========================================================

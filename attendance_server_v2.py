@@ -932,6 +932,60 @@ async function wakeServer() {
 # =========================================================
 # STARTUP
 # =========================================================
+# =========================================================
+# CHALLENGE MANAGEMENT (SAFE ADD)
+# =========================================================
 
+@app.post("/challenge/close")
+def close_challenge():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    rows = cur.execute("""
+        SELECT client_id,
+               COALESCE(baseline_score,0),
+               COALESCE(snapshot_score,0),
+               COALESCE(previous_total,0)
+        FROM clients
+    """).fetchall()
+
+    for r in rows:
+        client_id = r[0]
+        baseline = r[1]
+        snapshot = r[2]
+        previous = r[3]
+
+        # attendance count
+        att = cur.execute("""
+            SELECT COUNT(*)
+            FROM attendance
+            WHERE client_id = ?
+              AND COALESCE(present,1)=1
+        """, (client_id,)).fetchone()[0]
+
+        current_total = baseline + snapshot + att
+        new_lifetime = previous + current_total
+
+        cur.execute("""
+            UPDATE clients
+            SET previous_total = ?,
+                snapshot_score = 0
+            WHERE client_id = ?
+        """, (new_lifetime, client_id))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "message": "Challenge closed successfully"}
+
+
+@app.post("/challenge/start")
+def start_challenge(start_date: str, weeks: int = 6):
+    return {
+        "ok": True,
+        "start": start_date,
+        "weeks": weeks,
+        "message": "New challenge scheduled"
+    }
 init_db()
 upgrade_db()

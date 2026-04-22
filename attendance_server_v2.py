@@ -965,23 +965,26 @@ async function finalizeSelected() {
 }
 
 async function unfinalizeDate() {
-    let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
-    if (!d) return;
+    let boxes = document.querySelectorAll(".finalizeBox:checked");
+    let dates = Array.from(boxes).map(b => b.value);
+
+    if (dates.length === 0) {
+        alert("Select at least one date to unfinalize.");
+        return;
+    }
 
     try {
-        let res = await fetch("/attendance/unfinalize", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ date: d })
-        });
-
-        let data = await res.json();
-        if (!res.ok || data.ok === false) {
-            throw new Error("Unfinalize failed");
+        for (let d of dates) {
+            await fetch("/attendance/unfinalize", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ date: d })
+            });
         }
 
-        alert("Unfinalized " + d);
+        alert("Unfinalized " + dates.length + " date(s).");
         await loadBoard();
+
     } catch (err) {
         console.error("UNFINALIZE ERROR:", err);
         alert("Unfinalize failed.");

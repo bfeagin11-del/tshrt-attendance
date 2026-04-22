@@ -486,6 +486,27 @@ def leaderboard_page():
 <meta charset="utf-8">
 <title>TSHRT Leaderboard</title>
 <style>
+@media print {
+    button { display:none; }
+    select { display:none; }
+
+    body {
+        background:white !important;
+        color:black !important;
+    }
+
+    table {
+        width:100%;
+        border-collapse:collapse;
+        font-size:14px;
+    }
+
+    th, td {
+        border:1px solid black;
+        padding:6px;
+        text-align:center;
+    }
+}
 body { background:#0f172a; color:white; font-family:Arial; padding:20px; }
 h2 { margin-bottom:20px; }
 table { border-collapse:collapse; width:100%; }
@@ -507,6 +528,7 @@ Group:
 </select>
 
 <button onclick="loadBoard()">Load</button>
+<button onclick="printBoard()">🖨️ Print Leaderboard</button>
 
 <table id="table"></table>
 
@@ -515,6 +537,9 @@ async function loadBoard(){
     let g = document.getElementById("group").value;
     let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
     let data = await res.json();
+function printBoard(){
+    window.print();
+}
 
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 

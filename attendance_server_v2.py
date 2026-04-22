@@ -969,26 +969,25 @@ async function unfinalizeDate() {
     let dates = Array.from(boxes).map(b => b.value);
 
     if (dates.length === 0) {
-        alert("Select at least one date to unfinalize.");
+        alert("Select at least one date.");
         return;
     }
 
-    try {
-        for (let d of dates) {
-            await fetch("/attendance/unfinalize", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({ date: d })
-            });
-        }
+    let res = await fetch("/attendance/unfinalize_bulk", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ dates: dates })
+    });
 
-        alert("Unfinalized " + dates.length + " date(s).");
-        await loadBoard();
+    let data = await res.json();
 
-    } catch (err) {
-        console.error("UNFINALIZE ERROR:", err);
+    if (!data.ok) {
         alert("Unfinalize failed.");
+        return;
     }
+
+    alert("Unfinalized " + dates.length + " date(s)");
+    await loadBoard();
 }
 
 async function wakeServer() {
@@ -1005,7 +1004,27 @@ async function wakeServer() {
 </body>
 </html>
 """
+@app.post("/attendance/unfinalize_bulk")
+def unfinalize_bulk(payload: dict):
+    dates = payload.get("dates", [])
 
+    if not dates:
+        return {"ok": False, "message": "No dates provided"}
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for d in dates:
+        cur.execute("""
+            UPDATE attendance
+            SET finalized = 0
+            WHERE attended_date = ?
+        """, (d,))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "unfinalized_dates": dates}
 
 # =========================================================
 # CHALLENGE MANAGEMENT (SAFE ADD)

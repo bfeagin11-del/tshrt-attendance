@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import sqlite3
 import os
 from typing import List, Optional
+from datetime import datetime, timedelta
 
 app = FastAPI()
 
@@ -43,6 +44,16 @@ def init_db():
         present INTEGER DEFAULT 1,
         finalized INTEGER DEFAULT 0,
         UNIQUE(client_id, attended_date)
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS challenges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_date TEXT,
+        end_date TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
@@ -128,9 +139,41 @@ def group_match_sql():
     return "LOWER(TRIM(COALESCE(group_name, ''))) = LOWER(TRIM(?))"
 
 
+def get_active_challenge_dates(cur):
+    row = cur.execute("""
+        SELECT start_date, end_date
+        FROM challenges
+        WHERE active = 1
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
+    if row:
+        return row["start_date"], row["end_date"]
+    return None, None
+
+
 def build_leaderboard_data(group: str):
     conn = get_conn()
     cur = conn.cursor()
+
+    start_date, end_date = get_active_challenge_dates(cur)
+
+    if start_date and end_date:
+        attendance_join = """
+            LEFT JOIN attendance a
+                ON c.client_id = a.client_id
+                AND COALESCE(a.present, 1) = 1
+                AND a.attended_date >= ?
+                AND a.attended_date <= ?
+        """
+        params = (start_date, end_date, group)
+    else:
+        attendance_join = """
+            LEFT JOIN attendance a
+                ON c.client_id = a.client_id
+                AND COALESCE(a.present, 1) = 1
+        """
+        params = (group,)
 
     rows = cur.execute(f"""
         SELECT
@@ -143,9 +186,7 @@ def build_leaderboard_data(group: str):
             COALESCE(c.previous_total, 0) AS previous_total,
             COUNT(a.attended_date) AS attendance_count
         FROM clients c
-        LEFT JOIN attendance a
-            ON c.client_id = a.client_id
-            AND COALESCE(a.present, 1) = 1
+        {attendance_join}
         WHERE {group_match_sql()}
         GROUP BY
             c.client_id,
@@ -155,7 +196,7 @@ def build_leaderboard_data(group: str):
             c.baseline_score,
             c.snapshot_score,
             c.previous_total
-    """, (group,)).fetchall()
+    """, params).fetchall()
 
     conn.close()
 
@@ -173,23 +214,20 @@ def build_leaderboard_data(group: str):
         baseline = r["baseline_score"] or 0
         snapshot = r["snapshot_score"] or 0
         attendance = r["attendance_count"] or 0
-        previous = r["previous_total"] if "previous_total" in r.keys() else 0
+        previous = r["previous_total"] or 0
 
-        # Current = current challenge total
         current = baseline + snapshot + attendance
-
-        # Lifetime = past completed challenge total(s) + current challenge total
         lifetime = previous + current
 
         results.append({
-    "client_id": r["client_id"],
-    "name": name,
-    "attendance": attendance,
-    "baseline": round(baseline, 2),
-    "snapshot": round(snapshot, 2),
-    "current_score": round(current, 2),
-    "lifetime_score": round(lifetime, 2),
-})
+            "client_id": r["client_id"],
+            "name": name,
+            "attendance": attendance,
+            "baseline": round(baseline, 2),
+            "snapshot": round(snapshot, 2),
+            "current_score": round(current, 2),
+            "lifetime_score": round(lifetime, 2),
+        })
 
     results.sort(key=lambda x: (-x["current_score"], -x["lifetime_score"], x["name"].lower()))
     return results
@@ -233,9 +271,19 @@ def debug_clients():
     return {"ok": True, "count": len(rows), "clients": [dict(r) for r in rows]}
 
 
-# =========================================================
-# SYNC
-# =========================================================
+@app.get("/debug/challenge")
+def debug_challenge():
+    conn = get_conn()
+    cur = conn.cursor()
+    active = cur.execute("""
+        SELECT *
+        FROM challenges
+        WHERE active = 1
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
+    conn.close()
+    return {"ok": True, "active_challenge": dict(active) if active else None}
 
 
 # =========================================================
@@ -507,6 +555,7 @@ def leaderboard_page():
         text-align:center;
     }
 }
+
 body { background:#0f172a; color:white; font-family:Arial; padding:20px; }
 h2 { margin-bottom:20px; }
 table { border-collapse:collapse; width:100%; }
@@ -533,13 +582,14 @@ Group:
 <table id="table"></table>
 
 <script>
+function printBoard(){
+    window.print();
+}
+
 async function loadBoard(){
     let g = document.getElementById("group").value;
     let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
     let data = await res.json();
-function printBoard(){
-    window.print();
-}
 
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
@@ -566,24 +616,25 @@ function printBoard(){
 </html>
 """
 
+
+# =========================================================
+# SYNC
+# =========================================================
+
 @app.post("/sync")
 def sync_clients(payload: dict):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     clients = payload.get("clients", [])
-
     inserted = 0
 
     for c in clients:
-
-        # ===== GET TEST DATA =====
         tests = c.get("tests", [])
 
         baseline = 0
         latest = 0
 
-        # Extract valid scores
         valid_scores = []
         for t in tests:
             if isinstance(t, dict) and t.get("score") is not None:
@@ -595,7 +646,6 @@ def sync_clients(payload: dict):
 
         snapshot = latest - baseline
 
-        # ===== INSERT / UPDATE =====
         cur.execute("""
             INSERT INTO clients (
                 client_id,
@@ -811,7 +861,7 @@ function render() {
             if (locked) {
                 html += "<td class='" + classes + "'></td>";
             } else {
-                html += "<td class='" + classes + "' onclick=\\"toggleCell('" + c.client_id + "','" + d + "')\\"></td>";
+                html += "<td class='" + classes + "' onclick=\"toggleCell('" + c.client_id + "','" + d + "')\"></td>";
             }
         }
 
@@ -955,9 +1005,6 @@ async function wakeServer() {
 
 
 # =========================================================
-# STARTUP
-# =========================================================
-# =========================================================
 # CHALLENGE MANAGEMENT (SAFE ADD)
 # =========================================================
 
@@ -966,27 +1013,33 @@ def close_challenge():
     conn = get_conn()
     cur = conn.cursor()
 
+    start_date, end_date = get_active_challenge_dates(cur)
+    if not start_date or not end_date:
+        return {"ok": False, "message": "No active challenge found"}
+
     rows = cur.execute("""
         SELECT client_id,
-               COALESCE(baseline_score,0),
-               COALESCE(snapshot_score,0),
-               COALESCE(previous_total,0)
+               COALESCE(baseline_score,0) AS baseline_score,
+               COALESCE(snapshot_score,0) AS snapshot_score,
+               COALESCE(previous_total,0) AS previous_total
         FROM clients
     """).fetchall()
 
     for r in rows:
-        client_id = r[0]
-        baseline = r[1]
-        snapshot = r[2]
-        previous = r[3]
+        client_id = r["client_id"]
+        baseline = r["baseline_score"]
+        snapshot = r["snapshot_score"]
+        previous = r["previous_total"]
 
-        # attendance count
         att = cur.execute("""
             SELECT COUNT(*)
             FROM attendance
             WHERE client_id = ?
-              AND COALESCE(present,1)=1
-        """, (client_id,)).fetchone()[0]
+              AND COALESCE(present,1) = 1
+              AND COALESCE(finalized,0) = 1
+              AND attended_date >= ?
+              AND attended_date <= ?
+        """, (client_id, start_date, end_date)).fetchone()[0]
 
         current_total = baseline + snapshot + att
         new_lifetime = previous + current_total
@@ -998,6 +1051,12 @@ def close_challenge():
             WHERE client_id = ?
         """, (new_lifetime, client_id))
 
+    cur.execute("""
+        UPDATE challenges
+        SET active = 0
+        WHERE active = 1
+    """)
+
     conn.commit()
     conn.close()
 
@@ -1006,11 +1065,43 @@ def close_challenge():
 
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 6):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    except ValueError:
+        conn.close()
+        return {"ok": False, "message": "Invalid start_date format. Use YYYY-MM-DD"}
+
+    end_dt = start_dt + timedelta(weeks=weeks)
+
+    cur.execute("""
+        UPDATE challenges
+        SET active = 0
+        WHERE active = 1
+    """)
+
+    cur.execute("""
+        INSERT INTO challenges (start_date, end_date, active)
+        VALUES (?, ?, 1)
+    """, (start_date, end_dt.strftime("%Y-%m-%d")))
+
+    conn.commit()
+    conn.close()
+
     return {
         "ok": True,
         "start": start_date,
+        "end": end_dt.strftime("%Y-%m-%d"),
         "weeks": weeks,
         "message": "New challenge scheduled"
     }
+
+
+# =========================================================
+# STARTUP
+# =========================================================
+
 init_db()
 upgrade_db()

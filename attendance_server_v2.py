@@ -498,22 +498,7 @@ def finalize_bulk(payload: dict):
 
     return {"ok": True, "finalized_dates": dates}
 
-
-@app.post("/attendance/unfinalize")
-def unfinalize_date(payload: DatePayload):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("""
-        UPDATE attendance
-        SET finalized = 0
-        WHERE attended_date = ?
-    """, (payload.date,))
-
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "date": payload.date, "action": "unfinalized"}
+@app.post("/attendance/unfinalize_bulk")
 
 
 # =========================================================

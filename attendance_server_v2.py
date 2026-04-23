@@ -1121,10 +1121,8 @@ def close_challenge():
 
 @app.get("/debug/load_test")
 def debug_load_test():
-    return load_attendance(
-        start="2026-03-09",
-        end="2026-04-20"
-    )
+    return load_attendance(group="ABC Class")
+    
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 6):
     conn = get_conn()

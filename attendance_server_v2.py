@@ -1034,6 +1034,9 @@ async function wakeServer() {
         alert("Wake failed.");
     }
 }
+window.onload = function() {
+    loadBoard();
+};
 </script>
 
 </body>

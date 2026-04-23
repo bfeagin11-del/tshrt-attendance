@@ -458,7 +458,17 @@ def save_attendance(payload: SavePayload):
         "group": group
     }
 
+@app.get("/debug/attendance_raw")
+def debug_attendance_raw():
+    conn = get_conn()
+    cur = conn.cursor()
 
+    cur.execute("SELECT * FROM attendance LIMIT 20")
+    rows = cur.fetchall()
+
+    conn.close()
+
+    return {"rows": rows}
 @app.post("/attendance/finalize")
 def finalize_date(payload: DatePayload):
     conn = get_conn()

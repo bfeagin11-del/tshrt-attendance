@@ -1108,7 +1108,12 @@ def close_challenge():
 
     return {"ok": True, "message": "Challenge closed successfully"}
 
-
+@app.get("/debug/load_test")
+def debug_load_test():
+    return load_attendance(
+        start="2026-03-09",
+        end="2026-04-20"
+    )
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 6):
     conn = get_conn()
@@ -1151,3 +1156,5 @@ def start_challenge(start_date: str, weeks: int = 6):
 
 init_db()
 upgrade_db()
+
+

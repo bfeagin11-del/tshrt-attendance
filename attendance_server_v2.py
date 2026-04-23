@@ -331,27 +331,39 @@ def load_attendance(group: str):
     conn = get_conn()
     cur = conn.cursor()
 
-    rows = cur.execute(f"""
-        SELECT a.client_id, a.attended_date
-        FROM attendance a
-        JOIN clients c ON a.client_id = c.client_id
+    # GET CLIENT IDS FOR GROUP
+    clients = cur.execute(f"""
+        SELECT client_id
+        FROM clients
         WHERE {group_match_sql()}
-          AND COALESCE(a.present, 1) = 1
     """, (group,)).fetchall()
 
-    finalized_rows = cur.execute(f"""
-        SELECT DISTINCT a.attended_date
-        FROM attendance a
-        JOIN clients c ON a.client_id = c.client_id
-        WHERE {group_match_sql()}
-          AND COALESCE(a.finalized, 0) = 1
-    """, (group,)).fetchall()
+    valid_ids = set([c["client_id"] for c in clients])
+
+    # GET ATTENDANCE (NO JOIN)
+    rows = cur.execute("""
+        SELECT client_id, attended_date
+        FROM attendance
+        WHERE COALESCE(present, 1) = 1
+    """).fetchall()
+
+    finalized_rows = cur.execute("""
+        SELECT DISTINCT attended_date
+        FROM attendance
+        WHERE COALESCE(finalized, 0) = 1
+    """).fetchall()
 
     conn.close()
 
     selected = {}
+
     for r in rows:
-        selected[f"{r['client_id']}|{r['attended_date']}"] = True
+        cid = r["client_id"]
+
+        if cid not in valid_ids:
+            continue
+
+        selected[f"{cid}|{r['attended_date']}"] = True
 
     finalized_dates = [r["attended_date"] for r in finalized_rows]
 
@@ -360,7 +372,6 @@ def load_attendance(group: str):
         "selected": selected,
         "finalized_dates": finalized_dates
     }
-
 
 # =========================================================
 # SAVE / FINALIZE

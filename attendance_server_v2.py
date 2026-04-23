@@ -485,7 +485,36 @@ def finalize_date(payload: DatePayload):
 
     return {"ok": True, "date": payload.date, "action": "finalized"}
 
+@app.post("/fix_attendance_dates")
+def fix_attendance_dates():
+    conn = get_conn()
+    cur = conn.cursor()
 
+    cur.execute("SELECT id, attended_date FROM attendance")
+    rows = cur.fetchall()
+
+    fixed = 0
+
+    for row in rows:
+        rid = row["id"]
+        raw = row["attended_date"]
+
+        if "_" in raw:
+            parts = raw.split("_")
+            date_part = parts[-1]
+
+            # only update if it looks like a date
+            if "-" in date_part:
+                cur.execute(
+                    "UPDATE attendance SET attended_date = ? WHERE id = ?",
+                    (date_part, rid)
+                )
+                fixed += 1
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "fixed_rows": fixed}
 @app.post("/attendance/finalize_bulk")
 def finalize_bulk(payload: dict):
     dates = payload.get("dates", [])

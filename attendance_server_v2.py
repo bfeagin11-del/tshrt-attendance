@@ -485,7 +485,7 @@ def finalize_date(payload: DatePayload):
 
     return {"ok": True, "date": payload.date, "action": "finalized"}
 
-@app.post("/fix_attendance_dates")
+@app.get("/fix_attendance_dates")
 def fix_attendance_dates():
     conn = get_conn()
     cur = conn.cursor()

@@ -546,8 +546,6 @@ def finalize_bulk(payload: dict):
 
     return {"ok": True, "finalized_dates": dates}
 
-@app.post("/attendance/unfinalize_bulk")
-
 
 # =========================================================
 # LEADERBOARD / DISPLAY

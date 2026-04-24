@@ -873,27 +873,36 @@ async function loadBoard() {
 function render() {
     let html = "<tr><th class='name'>Name</th>";
 
+    // Build headers
     for (let d of state.dates) {
         let cls = state.finalizedDates.has(d) ? "finalized-col" : "";
         html += "<th class='" + cls + "'>" + formatHeaderDate(d) + "</th>";
     }
     html += "</tr>";
 
-    for (let c of state.clients) {
+    // 🔥 SAFE LOOP (THIS FIXES YOUR ISSUE)
+    for (let i = 0; i < state.clients.length; i++) {
+        let c = state.clients[i];
+
+        if (!c || !c.client_id) continue;
+
         html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
 
         for (let d of state.dates) {
             let simpleId = c.client_id.split("_")[0];
             let key = simpleId + "|" + d;
-            let classes = state.selected[key] ? "cell active" : "cell";
+
+            let isActive = state.selected[key] ? true : false;
             let locked = state.finalizedDates.has(d);
 
+            let classes = "cell";
+            if (isActive) classes += " active";
             if (locked) classes += " locked finalized-col";
 
             if (locked) {
                 html += "<td class='" + classes + "'></td>";
             } else {
-                html += "<td class='" + classes + "' onclick=\"toggleCell('" + c.client_id + "','" + d + "')\"></td>";
+                html += "<td class='" + classes + "' onclick=\"toggleCell('" + simpleId + "','" + d + "')\"></td>";
             }
         }
 
@@ -902,6 +911,7 @@ function render() {
 
     document.getElementById("grid").innerHTML = html;
 
+    // Date selector rebuild
     let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
     for (let d of state.dates) {
         let checked = state.finalizedDates.has(d) ? "checked" : "";

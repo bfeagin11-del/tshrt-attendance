@@ -1165,37 +1165,51 @@ def debug_load_test():
     return load_attendance(group="ABC Class")
     
 @app.post("/challenge/start")
-def start_challenge(start_date: str, weeks: int = 8):
+def start_challenge(payload: dict):
+    from datetime import datetime, timedelta
+
     conn = get_conn()
     cur = conn.cursor()
 
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    end = start + timedelta(weeks=weeks)
+    try:
+        start_date = payload.get("start_date")
+        weeks = int(payload.get("weeks", 8))
 
-    # 🔥 STEP 1 — CLOSE ANY EXISTING CHALLENGE
-    cur.execute("""
-        UPDATE challenges
-        SET active = 0
-    """)
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = start + timedelta(weeks=weeks)
 
-    # 🔥 STEP 2 — CREATE NEW ACTIVE CHALLENGE
-    cur.execute("""
-        INSERT INTO challenges (start_date, end_date, active)
-        VALUES (?, ?, 1)
-    """, (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
+        # 🔥 CLOSE ALL EXISTING
+        cur.execute("UPDATE challenges SET active = 0")
 
-    # 🔥 STEP 3 — ROLL SCORES FORWARD
-    cur.execute("""
-        UPDATE clients
-        SET baseline_score = baseline_score + snapshot_score,
-            snapshot_score = 0
-    """)
+        # 🔥 INSERT NEW ACTIVE
+        cur.execute("""
+            INSERT INTO challenges (start_date, end_date, active)
+            VALUES (?, ?, 1)
+        """, (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
 
-    # 🔥 STEP 4 — CLEAR ATTENDANCE
-    cur.execute("DELETE FROM attendance")
+        # 🔥 ROLL SCORES
+        cur.execute("""
+            UPDATE clients
+            SET baseline_score = baseline_score + snapshot_score,
+                snapshot_score = 0
+        """)
 
-    conn.commit()
-    conn.close()
+        # 🔥 CLEAR ATTENDANCE
+        cur.execute("DELETE FROM attendance")
+
+        conn.commit()
+
+        return {
+            "ok": True,
+            "start": start.strftime("%Y-%m-%d"),
+            "end": end.strftime("%Y-%m-%d")
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    finally:
+        conn.close()
 
     return {
         "ok": True,

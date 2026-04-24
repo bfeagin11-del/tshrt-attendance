@@ -883,7 +883,8 @@ function render() {
         html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
 
         for (let d of state.dates) {
-            let key = c.client_id + "|" + d;
+            let simpleId = c.client_id.split("_")[0];
+            let key = simpleId + "|" + d;
             let classes = state.selected[key] ? "cell active" : "cell";
             let locked = state.finalizedDates.has(d);
 

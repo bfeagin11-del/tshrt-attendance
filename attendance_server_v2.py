@@ -844,7 +844,7 @@ async function startChallenge() {
 
     try {
         let res = await fetch("/challenge/start", {
-            method: "POST",
+            method: "POST",                    // 🔥 THIS IS THE FIX
             headers: {
                 "Content-Type": "application/json"
             },
@@ -857,7 +857,7 @@ async function startChallenge() {
         let data = await res.json();
 
         if (data.ok) {
-            alert("New challenge started");
+            alert("New challenge started!");
             loadBoard();
         } else {
             alert("Error: " + data.error);

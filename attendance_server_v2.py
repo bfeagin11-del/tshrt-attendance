@@ -916,16 +916,20 @@ function render() {
     document.getElementById("dateSelector").innerHTML = selectorHTML;
 }
 
-function toggleCell(clientId, dateStr) {
-    if (state.finalizedDates.has(dateStr)) return;
+function toggleCell(client, date) {
+    const key = client + "|" + date;
 
-    let key = clientId + "|" + dateStr;
+    if (!state.selected) {
+        state.selected = {};
+    }
+
     if (state.selected[key]) {
         delete state.selected[key];
     } else {
         state.selected[key] = true;
     }
-    render();
+
+    renderBoard();
 }
 
 async function saveBoard() {

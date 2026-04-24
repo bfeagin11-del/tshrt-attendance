@@ -908,25 +908,32 @@ async function loadBoard() {
     try {
         let g = document.getElementById("group").value;
 
+        // 🔥 STEP 1 — LOAD ACTIVE CHALLENGE DATES
+        let metaRes = await fetch("/debug/challenge");
+        let metaData = await metaRes.json();
+
+        if (metaData.ok && metaData.active_challenge) {
+            document.getElementById("start").value = metaData.active_challenge.start_date;
+            document.getElementById("end").value = metaData.active_challenge.end_date;
+        }
+
+        // 🔥 STEP 2 — LOAD CLIENTS
         let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
         let clientsData = await clientsRes.json();
 
+        // 🔥 STEP 3 — LOAD ATTENDANCE
         let attRes = await fetch("/attendance/load?group=" + encodeURIComponent(g));
         let attData = await attRes.json();
-
-        if (!clientsRes.ok || clientsData.ok === false) {
-            throw new Error("Client load failed");
-        }
-        if (!attRes.ok || attData.ok === false) {
-            throw new Error("Attendance load failed");
-        }
 
         state.clients = clientsData.clients || [];
         state.selected = attData.selected || {};
         state.finalizedDates = new Set(attData.finalized_dates || []);
+
+        // 🔥 STEP 4 — BUILD DATES USING UPDATED INPUTS
         state.dates = buildDates();
 
         render();
+
     } catch (err) {
         console.error("LOAD ERROR:", err);
         alert("Load failed. Press F12 and check Console.");

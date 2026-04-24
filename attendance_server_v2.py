@@ -360,9 +360,7 @@ def load_attendance(group: str):
     for r in rows:
         cid = r["client_id"]
 
-        if cid not in valid_ids:
-            continue
-
+        # 🔥 REMOVE STRICT FILTER
         selected[f"{cid}|{r['attended_date']}"] = True
 
     finalized_dates = [r["attended_date"] for r in finalized_rows]

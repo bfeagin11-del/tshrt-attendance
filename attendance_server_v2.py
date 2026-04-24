@@ -1166,51 +1166,43 @@ def debug_load_test():
     
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 8):
-    from datetime import datetime, timedelta
-
     conn = get_conn()
     cur = conn.cursor()
 
-    # 1. MOVE CURRENT INTO BASELINE (LOCK IN PROGRESS)
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = start + timedelta(weeks=weeks)
+
+    # 🔥 STEP 1 — CLOSE ANY EXISTING CHALLENGE
+    cur.execute("""
+        UPDATE challenges
+        SET active = 0
+    """)
+
+    # 🔥 STEP 2 — CREATE NEW ACTIVE CHALLENGE
+    cur.execute("""
+        INSERT INTO challenges (start_date, end_date, active)
+        VALUES (?, ?, 1)
+    """, (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
+
+    # 🔥 STEP 3 — ROLL SCORES FORWARD
     cur.execute("""
         UPDATE clients
         SET baseline_score = baseline_score + snapshot_score,
             snapshot_score = 0
     """)
 
-    # 2. CLEAR ATTENDANCE FOR NEW CHALLENGE
+    # 🔥 STEP 4 — CLEAR ATTENDANCE
     cur.execute("DELETE FROM attendance")
-
-    # 3. CALCULATE NEW END DATE
-    start = datetime.strptime(start_date, "%Y-%m-%d")
-    end = start + timedelta(weeks=weeks)
-
-    # 4. STORE CHALLENGE WINDOW (OPTIONAL BUT SMART)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS challenge_meta (
-            id INTEGER PRIMARY KEY,
-            start_date TEXT,
-            end_date TEXT
-        )
-    """)
-
-    cur.execute("DELETE FROM challenge_meta")
-
-    cur.execute("""
-        INSERT INTO challenge_meta (start_date, end_date)
-        VALUES (?, ?)
-    """, (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
 
     conn.commit()
     conn.close()
 
     return {
         "ok": True,
-        "message": "New challenge started",
+        "message": "New challenge started clean",
         "start": start.strftime("%Y-%m-%d"),
         "end": end.strftime("%Y-%m-%d")
     }
-
 
 # =========================================================
 # STARTUP

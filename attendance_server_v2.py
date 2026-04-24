@@ -1191,4 +1191,3 @@ def start_challenge(start_date: str, weeks: int = 8):
 
 init_db()
 upgrade_db()
-

@@ -903,7 +903,7 @@ function render() {
             if (locked) {
                 html += "<td class='" + classes + "'></td>";
             } else {
-                html += "<td class='" + classes + "' onclick=\"toggleCell('" + simpleId + "','" + d + "')\"></td>";
+               html += `<td class="${classes}" onclick="toggleCell('${c.client_id}','${d}')"></td>`;
             }
         }
 

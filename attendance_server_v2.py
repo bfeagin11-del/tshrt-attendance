@@ -890,8 +890,7 @@ function render() {
         html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
 
         for (let d of state.dates) {
-            let simpleId = c.client_id.split("_")[0];
-            let key = simpleId + "|" + d;
+            let key = c.client_id + "|" + d;
 
             let isActive = state.selected[key] ? true : false;
             let locked = state.finalizedDates.has(d);
@@ -927,11 +926,11 @@ function render() {
 }
 
 function toggleCell(client, date) {
-    const key = client + "|" + date;
+    let fullId = client.includes("_") ? client : state.clients.find(c => c.client_id.startsWith(client)).client_id;
 
-    if (!state.selected) {
-        state.selected = {};
-    }
+    let key = fullId + "|" + date;
+
+    if (!state.selected) state.selected = {};
 
     if (state.selected[key]) {
         delete state.selected[key];
@@ -940,7 +939,7 @@ function toggleCell(client, date) {
     }
 
     render();
-}
+}   
 
 async function saveBoard() {
     try {

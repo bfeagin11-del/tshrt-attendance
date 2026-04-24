@@ -618,8 +618,35 @@ function printBoard(){
     window.print();
 }
 
-async function loadBoard(){
+async function loadBoard() {
     let g = document.getElementById("group").value;
+
+    // 🔥 AUTO LOAD ACTIVE CHALLENGE DATES
+    try {
+        let metaRes = await fetch("/debug/challenge");
+        let metaData = await metaRes.json();
+
+        if (metaData.ok && metaData.active_challenge) {
+            let start = metaData.active_challenge.start_date;
+            let end = metaData.active_challenge.end_date;
+
+            document.getElementById("start").value = start;
+            document.getElementById("end").value = end;
+        }
+    } catch (e) {
+        console.warn("Challenge auto-load failed");
+    }
+
+    // 👇 DO NOT DELETE THIS PART (must exist below)
+    let start = document.getElementById("start").value;
+    let end = document.getElementById("end").value;
+
+    let res = await fetch(`/attendance/load?group=${g}&start=${start}&end=${end}`);
+    let data = await res.json();
+
+    state = data;
+    render();
+}
     let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
     let data = await res.json();
 

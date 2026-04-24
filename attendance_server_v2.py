@@ -800,6 +800,7 @@ Days:
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
+<button onclick="startChallenge()">Start New Challenge</button>
 <button onclick="finalizeSelected()">Finalize Selected Dates</button>
 <button onclick="unfinalizeDate()">Unfinalize</button>
 <button onclick="wakeServer()">Wake</button>
@@ -832,7 +833,41 @@ function getSelectedDays() {
     return Array.from(document.querySelectorAll(".daybox:checked"))
         .map(c => parseInt(c.value));
 }
+async function startChallenge() {
+    let start = document.getElementById("start").value;
+    let weeks = prompt("Enter weeks (6 or 8):", "8");
 
+    if (!start || !weeks) {
+        alert("Missing input");
+        return;
+    }
+
+    try {
+        let res = await fetch("/challenge/start", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                start_date: start,
+                weeks: parseInt(weeks)
+            })
+        });
+
+        let data = await res.json();
+
+        if (data.ok) {
+            alert("New challenge started");
+            loadBoard();
+        } else {
+            alert("Error: " + data.error);
+        }
+
+    } catch (err) {
+        console.error(err);
+        alert("Failed to start challenge");
+    }
+}
 function buildDates() {
     let s = new Date(document.getElementById("start").value + "T12:00:00");
     let e = new Date(document.getElementById("end").value + "T12:00:00");

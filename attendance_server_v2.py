@@ -929,7 +929,7 @@ function toggleCell(client, date) {
         state.selected[key] = true;
     }
 
-    renderBoard();
+    render();
 }
 
 async function saveBoard() {

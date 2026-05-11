@@ -647,9 +647,7 @@ async function loadBoard() {
     state = data;
     render();
 }
-    let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
-    let data = await res.json();
-
+    
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
     let i = 1;

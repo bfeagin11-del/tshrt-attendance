@@ -612,8 +612,9 @@ Group:
 
 <table id="table"></table>
 
-alert("SCRIPT LOADED");
 <script>
+alert("SCRIPT LOADED");
+
 function printBoard(){
     window.print();
 }

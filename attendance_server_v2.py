@@ -613,61 +613,59 @@ Group:
 <table id="table"></table>
 
 <script>
-alert("SCRIPT LOADED");
 
-function printBoard(){
+function printBoard() {
     window.print();
 }
 
 async function loadBoard() {
+
     let g = document.getElementById("group").value;
 
-    // 🔥 AUTO LOAD ACTIVE CHALLENGE DATES
     try {
-        let metaRes = await fetch("/debug/challenge");
-        let metaData = await metaRes.json();
 
-        if (metaData.ok && metaData.active_challenge) {
-            let start = metaData.active_challenge.start_date;
-            let end = metaData.active_challenge.end_date;
+        let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
 
-            document.getElementById("start").value = start;
-            document.getElementById("end").value = end;
-        }
-    } catch (e) {
-        console.warn("Challenge auto-load failed");
+        let data = await res.json();
+
+        let table = document.getElementById("table");
+
+        let html = `
+            <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>Attendance</th>
+                <th>Δ</th>
+                <th>Current</th>
+                <th>Lifetime</th>
+            </tr>
+        `;
+
+        data.rows.forEach((r, i) => {
+
+            html += `
+                <tr>
+                    <td class="rank">${i + 1}</td>
+                    <td>${r.name}</td>
+                    <td>${r.attendance_count}</td>
+                    <td>${r.snapshot_score}</td>
+                    <td>${r.current_score}</td>
+                    <td class="gold">${r.lifetime_score}</td>
+                </tr>
+            `;
+        });
+
+        table.innerHTML = html;
+
+    } catch (err) {
+
+        console.error(err);
+
+        alert("Leaderboard failed to load");
+
     }
-
-    // 👇 DO NOT DELETE THIS PART (must exist below)
-    let start = document.getElementById("start").value;
-    let end = document.getElementById("end").value;
-
-    let res = await fetch(`/attendance/load?group=${g}&start=${start}&end=${end}`);
-    let data = await res.json();
-
-    state = data;
-    render();
 }
-    
-    let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
-    let i = 1;
-    for (let r of data.leaderboard){
-        let cls = (i === 1) ? "gold" : "";
-        html += "<tr>";
-        html += "<td class='rank " + cls + "'>" + i + "</td>";
-        html += "<td>" + r.name + "</td>";
-        html += "<td>" + r.attendance + "</td>";
-        html += "<td>" + r.baseline + "</td>";
-        html += "<td>" + r.snapshot + "</td>";
-        html += "<td>" + r.current_score + "</td>";
-        html += "<td>" + r.lifetime_score + "</td>";
-        html += "</tr>";
-        i++;
-    }
-
-    document.getElementById("table").innerHTML = html;
-}
 </script>
 
 </body>

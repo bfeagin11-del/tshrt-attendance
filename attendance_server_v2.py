@@ -222,9 +222,9 @@ def build_leaderboard_data(group: str):
         results.append({
             "client_id": r["client_id"],
             "name": name,
-            "attendance": attendance,
+            "attendance_count": attendance,
             "baseline": round(baseline, 2),
-            "snapshot": round(snapshot, 2),
+            "snapshot_score": round(snapshot, 2),
             "current_score": round(current, 2),
             "lifetime_score": round(lifetime, 2),
         })

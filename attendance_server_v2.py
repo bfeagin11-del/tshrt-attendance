@@ -641,7 +641,7 @@ async function loadBoard() {
             </tr>
         `;
 
-        data.rows.forEach((r, i) => {
+        data.leaderboard.forEach((r, i) => {
 
             html += `
                 <tr>

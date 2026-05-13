@@ -1229,8 +1229,7 @@ def start_challenge(payload: dict):
         # 🔥 ROLL SCORES
         cur.execute("""
             UPDATE clients
-            SET baseline_score = baseline_score + snapshot_score,
-                snapshot_score = 0
+            SET snapshot_score = 0
         """)
 
         # 🔥 CLEAR ATTENDANCE

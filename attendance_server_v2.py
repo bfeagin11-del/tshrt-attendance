@@ -700,7 +700,7 @@ def sync_clients(payload: dict):
             baseline = valid_scores[0]
             latest = valid_scores[-1]
 
-        snapshot = latest - baseline
+        snapshot = baseline - latest
 
         cur.execute("""
             INSERT INTO clients (

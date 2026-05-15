@@ -90,13 +90,9 @@ def upgrade_db():
     except Exception:
         pass
 
-    try:
-        cur.execute("ALTER TABLE clients ADD COLUMN challenge_active INTEGER DEFAULT 0")
-    except Exception:
-        pass
-
     conn.commit()
     conn.close()
+
 
 # =========================================================
 # MODELS
@@ -114,11 +110,6 @@ class SavePayload(BaseModel):
 class DatePayload(BaseModel):
     date: str
     group: Optional[str] = None
-
-
-class ActivateClientPayload(BaseModel):
-    client_id: str
-    baseline_score: float
 
 
 # =========================================================
@@ -197,7 +188,6 @@ def build_leaderboard_data(group: str):
         FROM clients c
         {attendance_join}
         WHERE {group_match_sql()}
-        AND COALESCE(c.challenge_active, 0) = 1
         GROUP BY
             c.client_id,
             c.first_name,
@@ -232,9 +222,9 @@ def build_leaderboard_data(group: str):
         results.append({
             "client_id": r["client_id"],
             "name": name,
-            "attendance_count": attendance,
+            "attendance": attendance,
             "baseline": round(baseline, 2),
-            "snapshot_score": round(snapshot, 2),
+            "snapshot": round(snapshot, 2),
             "current_score": round(current, 2),
             "lifetime_score": round(lifetime, 2),
         })
@@ -271,8 +261,7 @@ def debug_clients():
             group_name,
             COALESCE(baseline_score, 0) AS baseline_score,
             COALESCE(snapshot_score, 0) AS snapshot_score,
-            COALESCE(previous_total, 0) AS previous_total,
-            COALESCE(challenge_active, 0) AS challenge_active
+            COALESCE(previous_total, 0) AS previous_total
         FROM clients
         ORDER BY group_name, last_name, first_name
     """).fetchall()
@@ -342,37 +331,27 @@ def load_attendance(group: str):
     conn = get_conn()
     cur = conn.cursor()
 
-    # GET CLIENT IDS FOR GROUP
-    clients = cur.execute(f"""
-        SELECT client_id
-        FROM clients
+    rows = cur.execute(f"""
+        SELECT a.client_id, a.attended_date
+        FROM attendance a
+        JOIN clients c ON a.client_id = c.client_id
         WHERE {group_match_sql()}
+          AND COALESCE(a.present, 1) = 1
     """, (group,)).fetchall()
 
-    valid_ids = set([c["client_id"] for c in clients])
-
-    # GET ATTENDANCE (NO JOIN)
-    rows = cur.execute("""
-        SELECT client_id, attended_date
-        FROM attendance
-        WHERE COALESCE(present, 1) = 1
-    """).fetchall()
-
-    finalized_rows = cur.execute("""
-        SELECT DISTINCT attended_date
-        FROM attendance
-        WHERE COALESCE(finalized, 0) = 1
-    """).fetchall()
+    finalized_rows = cur.execute(f"""
+        SELECT DISTINCT a.attended_date
+        FROM attendance a
+        JOIN clients c ON a.client_id = c.client_id
+        WHERE {group_match_sql()}
+          AND COALESCE(a.finalized, 0) = 1
+    """, (group,)).fetchall()
 
     conn.close()
 
     selected = {}
-
     for r in rows:
-        cid = r["client_id"]
-
-        # 🔥 REMOVE STRICT FILTER
-        selected[f"{cid}|{r['attended_date']}"] = True
+        selected[f"{r['client_id']}|{r['attended_date']}"] = True
 
     finalized_dates = [r["attended_date"] for r in finalized_rows]
 
@@ -381,6 +360,7 @@ def load_attendance(group: str):
         "selected": selected,
         "finalized_dates": finalized_dates
     }
+
 
 # =========================================================
 # SAVE / FINALIZE
@@ -478,17 +458,7 @@ def save_attendance(payload: SavePayload):
         "group": group
     }
 
-@app.get("/debug/attendance_raw")
-def debug_attendance_raw():
-    conn = get_conn()
-    cur = conn.cursor()
 
-    cur.execute("SELECT * FROM attendance LIMIT 20")
-    rows = cur.fetchall()
-
-    conn.close()
-
-    return {"rows": rows}
 @app.post("/attendance/finalize")
 def finalize_date(payload: DatePayload):
     conn = get_conn()
@@ -505,36 +475,7 @@ def finalize_date(payload: DatePayload):
 
     return {"ok": True, "date": payload.date, "action": "finalized"}
 
-@app.get("/fix_attendance_dates")
-def fix_attendance_dates():
-    conn = get_conn()
-    cur = conn.cursor()
 
-    cur.execute("SELECT id, attended_date FROM attendance")
-    rows = cur.fetchall()
-
-    fixed = 0
-
-    for row in rows:
-        rid = row["id"]
-        raw = row["attended_date"]
-
-        if "_" in raw:
-            parts = raw.split("_")
-            date_part = parts[-1]
-
-            # only update if it looks like a date
-            if "-" in date_part:
-                cur.execute(
-                    "UPDATE attendance SET attended_date = ? WHERE id = ?",
-                    (date_part, rid)
-                )
-                fixed += 1
-
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "fixed_rows": fixed}
 @app.post("/attendance/finalize_bulk")
 def finalize_bulk(payload: dict):
     dates = payload.get("dates", [])
@@ -556,6 +497,23 @@ def finalize_bulk(payload: dict):
     conn.close()
 
     return {"ok": True, "finalized_dates": dates}
+
+
+@app.post("/attendance/unfinalize")
+def unfinalize_date(payload: DatePayload):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE attendance
+        SET finalized = 0
+        WHERE attended_date = ?
+    """, (payload.date,))
+
+    conn.commit()
+    conn.close()
+
+    return {"ok": True, "date": payload.date, "action": "unfinalized"}
 
 
 # =========================================================
@@ -610,31 +568,7 @@ th { background:#1e293b; }
 <body>
 
 <h2>🔥 TSHRT Challenge Leaderboard</h2>
-<div style="margin-bottom:20px;padding:15px;border:1px solid #334155;background:#111827;border-radius:10px;">
 
-<h3>⚙️ Challenge Controls</h3>
-
-<label>Start Date:</label>
-<input type="date" id="challenge_start">
-
-<label style="margin-left:15px;">Weeks:</label>
-
-<select id="challenge_weeks">
-    <option value="6">6</option>
-    <option value="8" selected>8</option>
-    <option value="10">10</option>
-    <option value="12">12</option>
-</select>
-
-<button onclick="startChallenge()">
-🚀 Start Challenge
-</button>
-
-<button onclick="closeChallenge()" style="margin-left:10px;">
-🏁 Close Challenge
-</button>
-
-</div>
 Group:
 <select id="group">
 <option>ABC Class</option>
@@ -648,119 +582,37 @@ Group:
 <table id="table"></table>
 
 <script>
-async function startChallenge() {
-
-    let start = document.getElementById("challenge_start").value;
-    let weeks = document.getElementById("challenge_weeks").value;
-
-    if (!start) {
-        alert("Select a start date");
-        return;
-    }
-
-    let res = await fetch("/challenge/start", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            start_date: start,
-            weeks: weeks
-        })
-    });
-
-    let data = await res.json();
-
-    if (data.ok) {
-
-        alert("✅ Challenge Started");
-
-        loadBoard();
-
-    } else {
-
-        alert("❌ Failed: " + data.error);
-    }
-}
-
-
-async function closeChallenge() {
-
-    if (!confirm("Close current challenge?")) {
-        return;
-    }
-
-    let res = await fetch("/challenge/close", {
-        method: "POST"
-    });
-
-    let data = await res.json();
-
-    if (data.ok) {
-
-        alert("🏁 Challenge Closed");
-
-        loadBoard();
-
-    } else {
-
-        alert("❌ Failed");
-    }
-}
-function printBoard() {
+function printBoard(){
     window.print();
 }
 
-async function loadBoard() {
-
+async function loadBoard(){
     let g = document.getElementById("group").value;
+    let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
+    let data = await res.json();
 
-    try {
+    let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
-        let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
-
-        let data = await res.json();
-
-        let table = document.getElementById("table");
-
-        let html = `
-            <tr>
-                <th>Rank</th>
-                <th>Name</th>
-                <th>Attendance</th>
-                <th>Δ</th>
-                <th>Current</th>
-                <th>Lifetime</th>
-            </tr>
-        `;
-
-        data.leaderboard.forEach((r, i) => {
-
-            html += `
-                <tr>
-                    <td class="rank">${i + 1}</td>
-                    <td>${r.name}</td>
-                    <td>${r.attendance_count}</td>
-                    <td>${r.snapshot_score}</td>
-                    <td>${r.current_score}</td>
-                    <td class="gold">${r.lifetime_score}</td>
-                </tr>
-            `;
-        });
-
-        table.innerHTML = html;
-
-    } catch (err) {
-
-        console.error(err);
-
-        alert("Leaderboard failed to load");
-
+    let i = 1;
+    for (let r of data.leaderboard){
+        let cls = (i === 1) ? "gold" : "";
+        html += "<tr>";
+        html += "<td class='rank " + cls + "'>" + i + "</td>";
+        html += "<td>" + r.name + "</td>";
+        html += "<td>" + r.attendance + "</td>";
+        html += "<td>" + r.baseline + "</td>";
+        html += "<td>" + r.snapshot + "</td>";
+        html += "<td>" + r.current_score + "</td>";
+        html += "<td>" + r.lifetime_score + "</td>";
+        html += "</tr>";
+        i++;
     }
-}
 
+    document.getElementById("table").innerHTML = html;
+}
 </script>
 
+</body>
 </html>
 """
 
@@ -889,7 +741,6 @@ Days:
 
 <button onclick="loadBoard()">Load</button>
 <button onclick="saveBoard()">Save</button>
-<button onclick="startChallenge()">Start New Challenge</button>
 <button onclick="finalizeSelected()">Finalize Selected Dates</button>
 <button onclick="unfinalizeDate()">Unfinalize</button>
 <button onclick="wakeServer()">Wake</button>
@@ -922,41 +773,7 @@ function getSelectedDays() {
     return Array.from(document.querySelectorAll(".daybox:checked"))
         .map(c => parseInt(c.value));
 }
-async function startChallenge() {
-    let start = document.getElementById("start").value;
-    let weeks = prompt("Enter weeks (6 or 8):", "8");
 
-    if (!start || !weeks) {
-        alert("Missing input");
-        return;
-    }
-
-    try {
-        let res = await fetch("/challenge/start", {
-            method: "POST",                    // 🔥 THIS IS THE FIX
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                start_date: start,
-                weeks: parseInt(weeks)
-            })
-        });
-
-        let data = await res.json();
-
-        if (data.ok) {
-            alert("New challenge started!");
-            loadBoard();
-        } else {
-            alert("Error: " + data.error);
-        }
-
-    } catch (err) {
-        console.error(err);
-        alert("Failed to start challenge");
-    }
-}
 function buildDates() {
     let s = new Date(document.getElementById("start").value + "T12:00:00");
     let e = new Date(document.getElementById("end").value + "T12:00:00");
@@ -997,32 +814,25 @@ async function loadBoard() {
     try {
         let g = document.getElementById("group").value;
 
-        // 🔥 STEP 1 — LOAD ACTIVE CHALLENGE DATES
-        let metaRes = await fetch("/debug/challenge");
-        let metaData = await metaRes.json();
-
-        if (metaData.ok && metaData.active_challenge) {
-            document.getElementById("start").value = metaData.active_challenge.start_date;
-            document.getElementById("end").value = metaData.active_challenge.end_date;
-        }
-
-        // 🔥 STEP 2 — LOAD CLIENTS
         let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
         let clientsData = await clientsRes.json();
 
-        // 🔥 STEP 3 — LOAD ATTENDANCE
         let attRes = await fetch("/attendance/load?group=" + encodeURIComponent(g));
         let attData = await attRes.json();
+
+        if (!clientsRes.ok || clientsData.ok === false) {
+            throw new Error("Client load failed");
+        }
+        if (!attRes.ok || attData.ok === false) {
+            throw new Error("Attendance load failed");
+        }
 
         state.clients = clientsData.clients || [];
         state.selected = attData.selected || {};
         state.finalizedDates = new Set(attData.finalized_dates || []);
-
-        // 🔥 STEP 4 — BUILD DATES USING UPDATED INPUTS
         state.dates = buildDates();
 
         render();
-
     } catch (err) {
         console.error("LOAD ERROR:", err);
         alert("Load failed. Press F12 and check Console.");
@@ -1032,35 +842,26 @@ async function loadBoard() {
 function render() {
     let html = "<tr><th class='name'>Name</th>";
 
-    // Build headers
     for (let d of state.dates) {
         let cls = state.finalizedDates.has(d) ? "finalized-col" : "";
         html += "<th class='" + cls + "'>" + formatHeaderDate(d) + "</th>";
     }
     html += "</tr>";
 
-    // 🔥 SAFE LOOP (THIS FIXES YOUR ISSUE)
-    for (let i = 0; i < state.clients.length; i++) {
-        let c = state.clients[i];
-
-        if (!c || !c.client_id) continue;
-
+    for (let c of state.clients) {
         html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
 
         for (let d of state.dates) {
             let key = c.client_id + "|" + d;
-
-            let isActive = state.selected[key] ? true : false;
+            let classes = state.selected[key] ? "cell active" : "cell";
             let locked = state.finalizedDates.has(d);
 
-            let classes = "cell";
-            if (isActive) classes += " active";
             if (locked) classes += " locked finalized-col";
 
             if (locked) {
                 html += "<td class='" + classes + "'></td>";
             } else {
-               html += `<td class="${classes}" onclick="toggleCell('${c.client_id}','${d}')"></td>`;
+                html += "<td class='" + classes + "' onclick=\"toggleCell('" + c.client_id + "','" + d + "')\"></td>";
             }
         }
 
@@ -1069,7 +870,6 @@ function render() {
 
     document.getElementById("grid").innerHTML = html;
 
-    // Date selector rebuild
     let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
     for (let d of state.dates) {
         let checked = state.finalizedDates.has(d) ? "checked" : "";
@@ -1083,21 +883,17 @@ function render() {
     document.getElementById("dateSelector").innerHTML = selectorHTML;
 }
 
-function toggleCell(client, date) {
-    let fullId = client.includes("_") ? client : state.clients.find(c => c.client_id.startsWith(client)).client_id;
+function toggleCell(clientId, dateStr) {
+    if (state.finalizedDates.has(dateStr)) return;
 
-    let key = fullId + "|" + date;
-
-    if (!state.selected) state.selected = {};
-
+    let key = clientId + "|" + dateStr;
     if (state.selected[key]) {
         delete state.selected[key];
     } else {
         state.selected[key] = true;
     }
-
     render();
-}   
+}
 
 async function saveBoard() {
     try {
@@ -1169,29 +965,27 @@ async function finalizeSelected() {
 }
 
 async function unfinalizeDate() {
-    let boxes = document.querySelectorAll(".finalizeBox:checked");
-    let dates = Array.from(boxes).map(b => b.value);
+    let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
+    if (!d) return;
 
-    if (dates.length === 0) {
-        alert("Select at least one date.");
-        return;
-    }
+    try {
+        let res = await fetch("/attendance/unfinalize", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ date: d })
+        });
 
-    let res = await fetch("/attendance/unfinalize_bulk", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ dates: dates })
-    });
+        let data = await res.json();
+        if (!res.ok || data.ok === false) {
+            throw new Error("Unfinalize failed");
+        }
 
-    let data = await res.json();
-
-    if (!data.ok) {
+        alert("Unfinalized " + d);
+        await loadBoard();
+    } catch (err) {
+        console.error("UNFINALIZE ERROR:", err);
         alert("Unfinalize failed.");
-        return;
     }
-
-    alert("Unfinalized " + dates.length + " date(s)");
-    await loadBoard();
 }
 
 async function wakeServer() {
@@ -1203,79 +997,16 @@ async function wakeServer() {
         alert("Wake failed.");
     }
 }
-window.onload = function() {
-    loadBoard();
-};
 </script>
 
 </body>
 </html>
 """
-@app.post("/attendance/unfinalize_bulk")
-def unfinalize_bulk(payload: dict):
-    dates = payload.get("dates", [])
 
-    if not dates:
-        return {"ok": False, "message": "No dates provided"}
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    for d in dates:
-        cur.execute("""
-            UPDATE attendance
-            SET finalized = 0
-            WHERE attended_date = ?
-        """, (d,))
-
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "unfinalized_dates": dates}
 
 # =========================================================
 # CHALLENGE MANAGEMENT (SAFE ADD)
 # =========================================================
-
-@app.post("/challenge/activate_client")
-def activate_client(payload: ActivateClientPayload):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    try:
-        client_id = (payload.client_id or "").strip()
-        baseline_score = float(payload.baseline_score)
-
-        if not client_id:
-            return {"ok": False, "message": "Missing client_id"}
-
-        cur.execute("""
-            UPDATE clients
-            SET challenge_active = 1,
-                baseline_score = ?,
-                snapshot_score = 0
-            WHERE client_id = ?
-        """, (baseline_score, client_id))
-
-        if cur.rowcount == 0:
-            conn.rollback()
-            return {"ok": False, "message": f"Client not found: {client_id}"}
-
-        conn.commit()
-        return {
-            "ok": True,
-            "client_id": client_id,
-            "baseline_score": baseline_score,
-            "challenge_active": 1
-        }
-
-    except Exception as e:
-        conn.rollback()
-        return {"ok": False, "error": str(e)}
-
-    finally:
-        conn.close()
-
 
 @app.post("/challenge/close")
 def close_challenge():
@@ -1292,7 +1023,6 @@ def close_challenge():
                COALESCE(snapshot_score,0) AS snapshot_score,
                COALESCE(previous_total,0) AS previous_total
         FROM clients
-        WHERE COALESCE(challenge_active, 0) = 1
     """).fetchall()
 
     for r in rows:
@@ -1317,8 +1047,7 @@ def close_challenge():
         cur.execute("""
             UPDATE clients
             SET previous_total = ?,
-                snapshot_score = 0,
-                challenge_active = 0
+                snapshot_score = 0
             WHERE client_id = ?
         """, (new_lifetime, client_id))
 
@@ -1333,106 +1062,42 @@ def close_challenge():
 
     return {"ok": True, "message": "Challenge closed successfully"}
 
-@app.get("/admin/migrate_previous_totals")
-def migrate_previous_totals():
 
+@app.post("/challenge/start")
+def start_challenge(start_date: str, weeks: int = 6):
     conn = get_conn()
     cur = conn.cursor()
 
-    rows = cur.execute("""
-        SELECT
-            client_id,
-            COALESCE(baseline_score,0) AS baseline_score,
-            COALESCE(snapshot_score,0) AS snapshot_score
-        FROM clients
-    """).fetchall()
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    except ValueError:
+        conn.close()
+        return {"ok": False, "message": "Invalid start_date format. Use YYYY-MM-DD"}
 
-    updated = []
+    end_dt = start_dt + timedelta(weeks=weeks)
 
-    for r in rows:
+    cur.execute("""
+        UPDATE challenges
+        SET active = 0
+        WHERE active = 1
+    """)
 
-        client_id = r["client_id"]
-
-        baseline = r["baseline_score"] or 0
-        snapshot = r["snapshot_score"] or 0
-
-        attendance = cur.execute("""
-            SELECT COUNT(*)
-            FROM attendance
-            WHERE client_id = ?
-              AND COALESCE(present,1) = 1
-        """, (client_id,)).fetchone()[0]
-
-        current = baseline + snapshot + attendance
-
-        cur.execute("""
-            UPDATE clients
-            SET previous_total = ?
-            WHERE client_id = ?
-        """, (current, client_id))
-
-        updated.append({
-            "client_id": client_id,
-            "previous_total": current
-        })
+    cur.execute("""
+        INSERT INTO challenges (start_date, end_date, active)
+        VALUES (?, ?, 1)
+    """, (start_date, end_dt.strftime("%Y-%m-%d")))
 
     conn.commit()
     conn.close()
 
     return {
         "ok": True,
-        "updated": updated
+        "start": start_date,
+        "end": end_dt.strftime("%Y-%m-%d"),
+        "weeks": weeks,
+        "message": "New challenge scheduled"
     }
-@app.get("/debug/load_test")
-def debug_load_test():
-    return load_attendance(group="ABC Class")
-    
-@app.post("/challenge/start")
-def start_challenge(payload: dict):
-    from datetime import datetime, timedelta
 
-    conn = get_conn()
-    cur = conn.cursor()
-
-    try:
-        start_date = payload.get("start_date")
-        weeks = int(payload.get("weeks", 8))
-
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = start + timedelta(weeks=weeks)
-
-        # 🔥 CLOSE ALL EXISTING
-        cur.execute("UPDATE challenges SET active = 0")
-
-        # 🔥 INSERT NEW ACTIVE
-        cur.execute("""
-            INSERT INTO challenges (start_date, end_date, active)
-            VALUES (?, ?, 1)
-        """, (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")))
-
-        # 🔥 ROLL SCORES
-        cur.execute("""
-            UPDATE clients
-            SET snapshot_score = 0,
-                challenge_active = 0
-        """)
-
-        # 🔥 CLEAR ATTENDANCE
-        cur.execute("DELETE FROM attendance")
-
-        conn.commit()
-
-        return {
-            "ok": True,
-            "start": start.strftime("%Y-%m-%d"),
-            "end": end.strftime("%Y-%m-%d")
-        }
-
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-    finally:
-        conn.close()
 
 # =========================================================
 # STARTUP

@@ -116,6 +116,11 @@ class DatePayload(BaseModel):
     group: Optional[str] = None
 
 
+class ActivateClientPayload(BaseModel):
+    client_id: str
+    baseline_score: float
+
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -266,7 +271,8 @@ def debug_clients():
             group_name,
             COALESCE(baseline_score, 0) AS baseline_score,
             COALESCE(snapshot_score, 0) AS snapshot_score,
-            COALESCE(previous_total, 0) AS previous_total
+            COALESCE(previous_total, 0) AS previous_total,
+            COALESCE(challenge_active, 0) AS challenge_active
         FROM clients
         ORDER BY group_name, last_name, first_name
     """).fetchall()
@@ -1150,6 +1156,46 @@ def unfinalize_bulk(payload: dict):
 # CHALLENGE MANAGEMENT (SAFE ADD)
 # =========================================================
 
+@app.post("/challenge/activate_client")
+def activate_client(payload: ActivateClientPayload):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        client_id = (payload.client_id or "").strip()
+        baseline_score = float(payload.baseline_score)
+
+        if not client_id:
+            return {"ok": False, "message": "Missing client_id"}
+
+        cur.execute("""
+            UPDATE clients
+            SET challenge_active = 1,
+                baseline_score = ?,
+                snapshot_score = 0
+            WHERE client_id = ?
+        """, (baseline_score, client_id))
+
+        if cur.rowcount == 0:
+            conn.rollback()
+            return {"ok": False, "message": f"Client not found: {client_id}"}
+
+        conn.commit()
+        return {
+            "ok": True,
+            "client_id": client_id,
+            "baseline_score": baseline_score,
+            "challenge_active": 1
+        }
+
+    except Exception as e:
+        conn.rollback()
+        return {"ok": False, "error": str(e)}
+
+    finally:
+        conn.close()
+
+
 @app.post("/challenge/close")
 def close_challenge():
     conn = get_conn()
@@ -1165,6 +1211,7 @@ def close_challenge():
                COALESCE(snapshot_score,0) AS snapshot_score,
                COALESCE(previous_total,0) AS previous_total
         FROM clients
+        WHERE COALESCE(challenge_active, 0) = 1
     """).fetchall()
 
     for r in rows:
@@ -1189,7 +1236,8 @@ def close_challenge():
         cur.execute("""
             UPDATE clients
             SET previous_total = ?,
-                snapshot_score = 0
+                snapshot_score = 0,
+                challenge_active = 0
             WHERE client_id = ?
         """, (new_lifetime, client_id))
 
@@ -1234,7 +1282,7 @@ def start_challenge(payload: dict):
         # 🔥 ROLL SCORES
         cur.execute("""
             UPDATE clients
-            SET snapshot_score = 0
+            SET snapshot_score = 0,
                 challenge_active = 0
         """)
 
@@ -1254,13 +1302,6 @@ def start_challenge(payload: dict):
 
     finally:
         conn.close()
-
-    return {
-        "ok": True,
-        "message": "New challenge started clean",
-        "start": start.strftime("%Y-%m-%d"),
-        "end": end.strftime("%Y-%m-%d")
-    }
 
 # =========================================================
 # STARTUP

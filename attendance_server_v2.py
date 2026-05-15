@@ -1252,7 +1252,7 @@ def close_challenge():
 
     return {"ok": True, "message": "Challenge closed successfully"}
 
-@app.post("/admin/migrate_previous_totals")
+@app.get("/admin/migrate_previous_totals")
 def migrate_previous_totals():
 
     conn = get_conn()

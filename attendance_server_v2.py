@@ -760,66 +760,7 @@ async function loadBoard() {
 }
 
 </script>
-async function startChallenge() {
 
-    let start = document.getElementById("challenge_start").value;
-    let weeks = document.getElementById("challenge_weeks").value;
-
-    if (!start) {
-        alert("Select a start date");
-        return;
-    }
-
-    let res = await fetch("/challenge/start", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            start_date: start,
-            weeks: weeks
-        })
-    });
-
-    let data = await res.json();
-
-    if (data.ok) {
-
-        alert("✅ Challenge Started");
-
-        loadBoard();
-
-    } else {
-
-        alert("❌ Failed: " + data.error);
-    }
-}
-
-
-async function closeChallenge() {
-
-    if (!confirm("Close current challenge?")) {
-        return;
-    }
-
-    let res = await fetch("/challenge/close", {
-        method: "POST"
-    });
-
-    let data = await res.json();
-
-    if (data.ok) {
-
-        alert("🏁 Challenge Closed");
-
-        loadBoard();
-
-    } else {
-
-        alert("❌ Failed");
-    }
-}
-</body>
 </html>
 """
 

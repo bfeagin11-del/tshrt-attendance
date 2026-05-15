@@ -90,9 +90,13 @@ def upgrade_db():
     except Exception:
         pass
 
+    try:
+        cur.execute("ALTER TABLE clients ADD COLUMN challenge_active INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
-
 
 # =========================================================
 # MODELS
@@ -1230,6 +1234,7 @@ def start_challenge(payload: dict):
         cur.execute("""
             UPDATE clients
             SET snapshot_score = 0
+                challenge_active = 0
         """)
 
         # 🔥 CLEAR ATTENDANCE

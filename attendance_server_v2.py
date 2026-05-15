@@ -585,6 +585,28 @@ Group:
 function printBoard(){
     window.print();
 }
+function formatDelta(v) {
+
+    v = Number(v);
+
+    if (v >= 5) {
+        return "🔥 Excellent";
+    }
+
+    if (v >= 1) {
+        return "👍 Improving";
+    }
+
+    if (v <= -5) {
+        return "⚠️ Needs Attention";
+    }
+
+    if (v < 0) {
+        return "➖ Slight Drop";
+    }
+
+    return "➖ Stable";
+}
 
 async function loadBoard(){
     let g = document.getElementById("group").value;
@@ -601,7 +623,7 @@ async function loadBoard(){
         html += "<td>" + r.name + "</td>";
         html += "<td>" + r.attendance + "</td>";
         html += "<td>" + r.baseline + "</td>";
-        html += "<td>" + r.snapshot + "</td>";
+        html += "<td>" + formatDelta(r.snapshot) + "</td>";
         html += "<td>" + r.current_score + "</td>";
         html += "<td>" + r.lifetime_score + "</td>";
         html += "</tr>";

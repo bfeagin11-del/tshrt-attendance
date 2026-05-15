@@ -610,7 +610,31 @@ th { background:#1e293b; }
 <body>
 
 <h2>🔥 TSHRT Challenge Leaderboard</h2>
+<div style="margin-bottom:20px;padding:15px;border:1px solid #334155;background:#111827;border-radius:10px;">
 
+<h3>⚙️ Challenge Controls</h3>
+
+<label>Start Date:</label>
+<input type="date" id="challenge_start">
+
+<label style="margin-left:15px;">Weeks:</label>
+
+<select id="challenge_weeks">
+    <option value="6">6</option>
+    <option value="8" selected>8</option>
+    <option value="10">10</option>
+    <option value="12">12</option>
+</select>
+
+<button onclick="startChallenge()">
+🚀 Start Challenge
+</button>
+
+<button onclick="closeChallenge()" style="margin-left:10px;">
+🏁 Close Challenge
+</button>
+
+</div>
 Group:
 <select id="group">
 <option>ABC Class</option>
@@ -678,7 +702,65 @@ async function loadBoard() {
 }
 
 </script>
+async function startChallenge() {
 
+    let start = document.getElementById("challenge_start").value;
+    let weeks = document.getElementById("challenge_weeks").value;
+
+    if (!start) {
+        alert("Select a start date");
+        return;
+    }
+
+    let res = await fetch("/challenge/start", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            start_date: start,
+            weeks: weeks
+        })
+    });
+
+    let data = await res.json();
+
+    if (data.ok) {
+
+        alert("✅ Challenge Started");
+
+        loadBoard();
+
+    } else {
+
+        alert("❌ Failed: " + data.error);
+    }
+}
+
+
+async function closeChallenge() {
+
+    if (!confirm("Close current challenge?")) {
+        return;
+    }
+
+    let res = await fetch("/challenge/close", {
+        method: "POST"
+    });
+
+    let data = await res.json();
+
+    if (data.ok) {
+
+        alert("🏁 Challenge Closed");
+
+        loadBoard();
+
+    } else {
+
+        alert("❌ Failed");
+    }
+}
 </body>
 </html>
 """

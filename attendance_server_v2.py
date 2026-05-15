@@ -1252,6 +1252,56 @@ def close_challenge():
 
     return {"ok": True, "message": "Challenge closed successfully"}
 
+@app.post("/admin/migrate_previous_totals")
+def migrate_previous_totals():
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    rows = cur.execute("""
+        SELECT
+            client_id,
+            COALESCE(baseline_score,0) AS baseline_score,
+            COALESCE(snapshot_score,0) AS snapshot_score
+        FROM clients
+    """).fetchall()
+
+    updated = []
+
+    for r in rows:
+
+        client_id = r["client_id"]
+
+        baseline = r["baseline_score"] or 0
+        snapshot = r["snapshot_score"] or 0
+
+        attendance = cur.execute("""
+            SELECT COUNT(*)
+            FROM attendance
+            WHERE client_id = ?
+              AND COALESCE(present,1) = 1
+        """, (client_id,)).fetchone()[0]
+
+        current = baseline + snapshot + attendance
+
+        cur.execute("""
+            UPDATE clients
+            SET previous_total = ?
+            WHERE client_id = ?
+        """, (current, client_id))
+
+        updated.append({
+            "client_id": client_id,
+            "previous_total": current
+        })
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "updated": updated
+    }
 @app.get("/debug/load_test")
 def debug_load_test():
     return load_attendance(group="ABC Class")

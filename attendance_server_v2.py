@@ -192,6 +192,7 @@ def build_leaderboard_data(group: str):
         FROM clients c
         {attendance_join}
         WHERE {group_match_sql()}
+        AND COALESCE(c.challenge_active, 0) = 1
         GROUP BY
             c.client_id,
             c.first_name,

@@ -580,7 +580,29 @@ Group:
 <button onclick="printBoard()">🖨️ Print Leaderboard</button>
 
 <table id="table"></table>
+<div style="
+    margin-top:25px;
+    padding:15px;
+    border:1px solid #334155;
+    background:#111827;
+    border-radius:10px;
+    font-size:14px;
+    line-height:1.8;
+">
 
+<h3 style="margin-top:0;">📘 Leaderboard Legend</h3>
+
+<div>🔥 <b>Elite</b> = Outstanding consistency and performance</div>
+
+<div>👍 <b>Consistent</b> = Solid steady progress</div>
+
+<div>➖ <b>Stable</b> = Maintaining current condition</div>
+
+<div>⚠️ <b>Needs Attention</b> = Metrics or attendance slipping</div>
+
+<div>🚨 <b>Risk</b> = Immediate coaching intervention recommended</div>
+
+</div>
 <script>
 function printBoard(){
     window.print();

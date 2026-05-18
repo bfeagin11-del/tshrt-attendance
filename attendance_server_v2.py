@@ -229,7 +229,7 @@ def build_leaderboard_data(group: str):
             "lifetime_score": round(lifetime, 2),
         })
 
-    results.sort(key=lambda x: (-x["current_score"], -x["lifetime_score"], x["name"].lower()))
+    results.sort(key=lambda x: (-x["lifetime_score"], -x["current_score"], x["name"].lower()))
     return results
 
 
@@ -1140,7 +1140,58 @@ def debug_client(client_id: str):
         "client": r,
         "calculated_current_without_attendance": current
     }
+@app.get("/admin/rebuild_lifetime")
+def rebuild_lifetime():
 
+    conn = get_conn()
+    cur = conn.cursor()
+
+    rows = cur.execute("""
+        SELECT
+            client_id,
+            COALESCE(baseline_score,0) AS baseline_score,
+            COALESCE(snapshot_score,0) AS snapshot_score
+        FROM clients
+    """).fetchall()
+
+    updated = []
+
+    for r in rows:
+
+        client_id = r["client_id"]
+
+        baseline = r["baseline_score"] or 0
+        snapshot = r["snapshot_score"] or 0
+
+        attendance = cur.execute("""
+            SELECT COUNT(*)
+            FROM attendance
+            WHERE client_id = ?
+              AND COALESCE(present,1) = 1
+        """, (client_id,)).fetchone()[0]
+
+        current = baseline + snapshot + attendance
+
+        previous_total = max(0, current)
+
+        cur.execute("""
+            UPDATE clients
+            SET previous_total = ?
+            WHERE client_id = ?
+        """, (previous_total, client_id))
+
+        updated.append({
+            "client_id": client_id,
+            "previous_total": previous_total
+        })
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "updated": updated
+    }
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 6):
     conn = get_conn()

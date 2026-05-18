@@ -630,6 +630,29 @@ function formatDelta(v) {
     return "➖ Stable (0)";
 }
 
+
+function formatAttendance(v) {
+
+    v = Number(v);
+
+    if (v >= 8) {
+        return v + " 🔥 Elite";
+    }
+
+    if (v >= 6) {
+        return v + " 👍 Consistent";
+    }
+
+    if (v >= 4) {
+        return v + " ➖ Stable";
+    }
+
+    if (v >= 2) {
+        return v + " ⚠️ Slipping";
+    }
+
+    return v + " 🚨 Risk";
+}
 async function loadBoard(){
     let g = document.getElementById("group").value;
     let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
@@ -643,7 +666,7 @@ async function loadBoard(){
         html += "<tr>";
         html += "<td class='rank " + cls + "'>" + i + "</td>";
         html += "<td>" + r.name + "</td>";
-        html += "<td>" + r.attendance + "</td>";
+        html += "<td>" + formatAttendance(r.attendance) + "</td>";
         html += "<td>" + r.baseline + "</td>";
         html += "<td>" + formatDelta(r.snapshot) + "</td>";
         html += "<td>" + r.current_score + "</td>";

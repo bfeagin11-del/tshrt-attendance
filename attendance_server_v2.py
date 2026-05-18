@@ -216,7 +216,7 @@ def build_leaderboard_data(group: str):
         attendance = r["attendance_count"] or 0
         previous = r["previous_total"] or 0
 
-        current = baseline + snapshot + attendance
+        current = snapshot + attendance
         lifetime = previous + current
 
         results.append({

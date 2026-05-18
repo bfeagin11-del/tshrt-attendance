@@ -1106,6 +1106,40 @@ def close_challenge():
 
     return {"ok": True, "message": "Challenge closed successfully"}
 
+@app.get("/debug/client/{client_id}")
+def debug_client(client_id: str):
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    row = cur.execute("""
+        SELECT
+            client_id,
+            display_name,
+            baseline_score,
+            snapshot_score,
+            previous_total
+        FROM clients
+        WHERE client_id = ?
+    """, (client_id,)).fetchone()
+
+    conn.close()
+
+    if not row:
+        return {"ok": False}
+
+    r = dict(row)
+
+    current = (
+        (r["baseline_score"] or 0)
+        + (r["snapshot_score"] or 0)
+    )
+
+    return {
+        "ok": True,
+        "client": r,
+        "calculated_current_without_attendance": current
+    }
 
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 6):

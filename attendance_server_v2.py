@@ -612,22 +612,22 @@ function formatDelta(v) {
     v = Number(v);
 
     if (v >= 5) {
-        return "🔥 Excellent";
+        return "🔥 Excellent (+" + v + ")";
     }
 
     if (v >= 1) {
-        return "👍 Improving";
+        return "👍 Improving (+" + v + ")";
     }
 
     if (v <= -5) {
-        return "⚠️ Needs Attention";
+        return "⚠️ Needs Attention (" + v + ")";
     }
 
     if (v < 0) {
-        return "➖ Slight Drop";
+        return "➖ Stable (" + v + ")";
     }
 
-    return "➖ Stable";
+    return "➖ Stable (0)";
 }
 
 async function loadBoard(){

@@ -972,14 +972,6 @@ async function loadBoard() {
 
         let g = document.getElementById("group").value;
 
-        let metaRes = await fetch("/debug/challenge");
-        let metaData = await metaRes.json();
-
-        if (metaData.ok && metaData.active_challenge) {
-            document.getElementById("start").value = metaData.active_challenge.start_date;
-            document.getElementById("end").value = metaData.active_challenge.end_date;
-        }
-
         let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
         let clientsData = await clientsRes.json();
 

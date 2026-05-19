@@ -310,21 +310,26 @@ def debug_challenge():
 
 @app.get("/attendance/data")
 def attendance_data(group: str):
+
     conn = get_conn()
     cur = conn.cursor()
 
     rows = cur.execute(f"""
         SELECT
-            client_id, first_name, last_name, display_name, group_name
+            client_id,
+            first_name,
+            last_name,
+            display_name,
+            group_name
         FROM clients
         WHERE {group_match_sql()}
         ORDER BY last_name, first_name, display_name
     """, (group,)).fetchall()
 
-    conn.close()
-
     clients = []
+
     for r in rows:
+
         first_name = (r["first_name"] or "").strip()
         last_name = (r["last_name"] or "").strip()
         display_name = (r["display_name"] or "").strip()
@@ -341,7 +346,41 @@ def attendance_data(group: str):
             "display_name": display_name
         })
 
-    return {"ok": True, "clients": clients}
+    attendance_rows = cur.execute("""
+        SELECT
+            client_id,
+            attended_date,
+            COALESCE(present,1) AS present
+        FROM attendance
+    """).fetchall()
+
+    attendance_map = {}
+
+    for row in attendance_rows:
+
+        key = f"{row['client_id']}|{row['attended_date']}"
+
+        attendance_map[key] = bool(row["present"])
+
+    finalized_rows = cur.execute("""
+        SELECT DISTINCT attended_date
+        FROM attendance
+        WHERE COALESCE(finalized,0)=1
+    """).fetchall()
+
+    finalized_dates = [
+        r["attended_date"]
+        for r in finalized_rows
+    ]
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "clients": clients,
+        "attendance": attendance_map,
+        "finalized_dates": finalized_dates
+    } 
 
 
 @app.get("/attendance/load")

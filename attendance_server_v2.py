@@ -270,7 +270,25 @@ def debug_clients():
 
     return {"ok": True, "count": len(rows), "clients": [dict(r) for r in rows]}
 
+@app.get("/admin/reactivate_all")
+def reactivate_all():
 
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE clients
+        SET challenge_active = 1
+        WHERE group_name = 'ABC Class'
+    """)
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "message": "ABC Class reactivated"
+    }
 @app.get("/debug/challenge")
 def debug_challenge():
     conn = get_conn()

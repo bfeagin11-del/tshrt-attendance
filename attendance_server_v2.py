@@ -903,63 +903,102 @@ let state = {
 };
 
 function setStatus(message) {
-    let el = document.getElementById("status");
+    const el = document.getElementById("status");
     if (el) {
         el.textContent = message;
     }
 }
 
+function fetchJsonWithTimeout(url, timeoutMs) {
+    return new Promise(function(resolve, reject) {
+        const timer = setTimeout(function() {
+            reject(new Error("Request timed out: " + url));
+        }, timeoutMs);
+
+        fetch(url)
+            .then(function(response) {
+                clearTimeout(timer);
+                if (!response.ok) {
+                    reject(new Error("HTTP " + response.status + " from " + url));
+                    return;
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                if (data !== undefined) {
+                    resolve(data);
+                }
+            })
+            .catch(function(error) {
+                clearTimeout(timer);
+                reject(error);
+            });
+    });
+}
+
 function getSelectedDays() {
-    return Array.from(document.querySelectorAll(".daybox:checked"))
-        .map(function(c) { return parseInt(c.value); });
+    return Array.from(document.querySelectorAll(".daybox:checked")).map(function(c) {
+        return parseInt(c.value);
+    });
 }
 
 function buildDates() {
-    let startValue = document.getElementById("start").value;
-    let endValue = document.getElementById("end").value;
+    const startValue = document.getElementById("start").value;
+    const endValue = document.getElementById("end").value;
 
     if (!startValue || !endValue) {
         return [];
     }
 
-    let s = new Date(startValue + "T12:00:00");
-    let e = new Date(endValue + "T12:00:00");
-    let days = getSelectedDays();
-    let arr = [];
+    const selectedDays = getSelectedDays();
 
-    while (s <= e) {
-        if (days.indexOf(s.getDay()) !== -1) {
-            let y = s.getFullYear();
-            let m = String(s.getMonth() + 1).padStart(2, "0");
-            let d = String(s.getDate()).padStart(2, "0");
-            arr.push(y + "-" + m + "-" + d);
-        }
-        s.setDate(s.getDate() + 1);
+    if (selectedDays.length === 0) {
+        return [];
     }
 
-    return arr;
+    const dates = [];
+    let cursor = new Date(startValue + "T12:00:00");
+    const end = new Date(endValue + "T12:00:00");
+
+    let safetyCounter = 0;
+
+    while (cursor <= end && safetyCounter < 400) {
+        if (selectedDays.indexOf(cursor.getDay()) !== -1) {
+            const y = cursor.getFullYear();
+            const m = String(cursor.getMonth() + 1).padStart(2, "0");
+            const d = String(cursor.getDate()).padStart(2, "0");
+            dates.push(y + "-" + m + "-" + d);
+        }
+
+        cursor.setDate(cursor.getDate() + 1);
+        safetyCounter += 1;
+    }
+
+    return dates;
 }
 
 function formatHeaderDate(dateStr) {
-    let dt = new Date(dateStr + "T12:00:00");
-    let weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    let months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    let dayName = weekdays[dt.getDay()];
-    let dayNum = dt.getDate();
-    let monthName = months[dt.getMonth()];
-    let yearShort = String(dt.getFullYear()).slice(-2);
+    const dt = new Date(dateStr + "T12:00:00");
+    const weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const dayName = weekdays[dt.getDay()];
+    const dayNum = dt.getDate();
+    const monthName = months[dt.getMonth()];
+    const yearShort = String(dt.getFullYear()).slice(-2);
     return dayName + ", " + dayNum + " " + monthName + " " + yearShort;
 }
 
 function safeDisplayName(c) {
-    let last = c.last_name || "";
-    let first = c.first_name || "";
+    const last = c.last_name || "";
+    const first = c.first_name || "";
 
     if (last || first) {
         let name = (last + ", " + first).trim();
-        if (name.startsWith(",")) {
+
+        if (name.charAt(0) === ",") {
             name = name.substring(1).trim();
         }
+
         return name;
     }
 
@@ -968,73 +1007,96 @@ function safeDisplayName(c) {
 
 async function loadBoard() {
     try {
-        setStatus("Loading...");
+        setStatus("Loading clients...");
 
-        let g = document.getElementById("group").value;
+        const groupName = document.getElementById("group").value;
 
-        let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
-        let clientsData = await clientsRes.json();
+        state.dates = buildDates();
 
-        let attRes = await fetch("/attendance/load?group=" + encodeURIComponent(g));
-        let attData = await attRes.json();
+        const clientsData = await fetchJsonWithTimeout(
+            "/attendance/data?group=" + encodeURIComponent(groupName),
+            8000
+        );
 
-        if (!clientsRes.ok || clientsData.ok === false) {
+        if (!clientsData.ok) {
             throw new Error("Client load failed");
         }
 
-        if (!attRes.ok || attData.ok === false) {
-            throw new Error("Attendance load failed");
+        state.clients = clientsData.clients || [];
+
+        setStatus("Loading saved attendance...");
+
+        let attData = {
+            ok: true,
+            selected: {},
+            finalized_dates: []
+        };
+
+        try {
+            attData = await fetchJsonWithTimeout(
+                "/attendance/load?group=" + encodeURIComponent(groupName),
+                8000
+            );
+        } catch (attendanceError) {
+            console.warn("Attendance load warning:", attendanceError);
+            attData = {
+                ok: true,
+                selected: {},
+                finalized_dates: []
+            };
         }
 
-        state.clients = clientsData.clients || [];
         state.selected = attData.selected || {};
         state.finalizedDates = new Set(attData.finalized_dates || []);
-        state.dates = buildDates();
 
         render();
 
         setStatus("Loaded " + state.clients.length + " clients and " + state.dates.length + " class dates.");
     } catch (err) {
         console.error("LOAD ERROR:", err);
-        setStatus("Load failed. Press F12 and check Console.");
-        alert("Load failed. Press F12 and check Console.");
+        setStatus("Load failed: " + err.message);
+        renderEmpty();
     }
+}
+
+function renderEmpty() {
+    document.getElementById("grid").innerHTML = "";
+    document.getElementById("dateSelector").innerHTML = "";
 }
 
 function render() {
     let html = "<tr><th class='name'>Name</th>";
 
     for (let i = 0; i < state.dates.length; i++) {
-        let d = state.dates[i];
-        let cls = state.finalizedDates.has(d) ? "finalized-col" : "";
-        html += "<th class='" + cls + "'>" + formatHeaderDate(d) + "</th>";
+        const dateStr = state.dates[i];
+        const cls = state.finalizedDates.has(dateStr) ? "finalized-col" : "";
+        html += "<th class='" + cls + "'>" + formatHeaderDate(dateStr) + "</th>";
     }
 
     html += "</tr>";
 
     for (let cIndex = 0; cIndex < state.clients.length; cIndex++) {
-        let c = state.clients[cIndex];
+        const client = state.clients[cIndex];
 
-        if (!c || !c.client_id) {
+        if (!client || !client.client_id) {
             continue;
         }
 
-        html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
+        html += "<tr>";
+        html += "<td class='name'>" + safeDisplayName(client) + "</td>";
 
         for (let dIndex = 0; dIndex < state.dates.length; dIndex++) {
-            let d = state.dates[dIndex];
-            let key = c.client_id + "|" + d;
+            const dateStr = state.dates[dIndex];
+            const key = client.client_id + "|" + dateStr;
+            const locked = state.finalizedDates.has(dateStr);
+
             let classes = state.selected[key] ? "cell active" : "cell";
-            let locked = state.finalizedDates.has(d);
 
             if (locked) {
                 classes += " locked finalized-col";
-            }
-
-            if (locked) {
                 html += "<td class='" + classes + "'></td>";
             } else {
-                html += "<td class='" + classes + "' onclick=\"toggleCell('" + c.client_id + "','" + d + "')\"></td>";
+                html += "<td class='" + classes + "' onclick=\"toggleCell('" + client.client_id + "','" + dateStr + "')\"></td>";
             }
         }
 
@@ -1046,11 +1108,12 @@ function render() {
     let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
 
     for (let i = 0; i < state.dates.length; i++) {
-        let d = state.dates[i];
-        let checked = state.finalizedDates.has(d) ? "checked" : "";
+        const dateStr = state.dates[i];
+        const checked = state.finalizedDates.has(dateStr) ? "checked" : "";
+
         selectorHTML += "<label style='margin-right:10px;'>";
-        selectorHTML += "<input type='checkbox' class='finalizeBox' value='" + d + "' " + checked + "> ";
-        selectorHTML += formatHeaderDate(d);
+        selectorHTML += "<input type='checkbox' class='finalizeBox' value='" + dateStr + "' " + checked + "> ";
+        selectorHTML += formatHeaderDate(dateStr);
         selectorHTML += "</label><br>";
     }
 
@@ -1062,7 +1125,7 @@ function toggleCell(clientId, dateStr) {
         return;
     }
 
-    let key = clientId + "|" + dateStr;
+    const key = clientId + "|" + dateStr;
 
     if (state.selected[key]) {
         delete state.selected[key];
@@ -1075,11 +1138,11 @@ function toggleCell(clientId, dateStr) {
 
 async function saveBoard() {
     try {
-        let groupName = document.getElementById("group").value;
-        let selectedRecords = [];
+        const groupName = document.getElementById("group").value;
+        const selectedRecords = [];
 
-        for (let key in state.selected) {
-            let parts = key.split("|");
+        for (const key in state.selected) {
+            const parts = key.split("|");
 
             if (parts.length !== 2) {
                 continue;
@@ -1091,7 +1154,7 @@ async function saveBoard() {
             });
         }
 
-        let res = await fetch("/attendance/save", {
+        const response = await fetch("/attendance/save", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
@@ -1100,9 +1163,9 @@ async function saveBoard() {
             })
         });
 
-        let data = await res.json();
+        const data = await response.json();
 
-        if (!res.ok || data.ok === false) {
+        if (!response.ok || data.ok === false) {
             throw new Error("Save failed");
         }
 
@@ -1115,8 +1178,10 @@ async function saveBoard() {
 }
 
 async function finalizeSelected() {
-    let boxes = document.querySelectorAll(".finalizeBox:checked");
-    let dates = Array.from(boxes).map(function(b) { return b.value; });
+    const boxes = document.querySelectorAll(".finalizeBox:checked");
+    const dates = Array.from(boxes).map(function(b) {
+        return b.value;
+    });
 
     if (dates.length === 0) {
         alert("No dates selected.");
@@ -1126,15 +1191,15 @@ async function finalizeSelected() {
     try {
         await saveBoard();
 
-        let res = await fetch("/attendance/finalize_bulk", {
+        const response = await fetch("/attendance/finalize_bulk", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({ dates: dates })
         });
 
-        let data = await res.json();
+        const data = await response.json();
 
-        if (!res.ok || data.ok === false) {
+        if (!response.ok || data.ok === false) {
             throw new Error("Finalize failed");
         }
 
@@ -1147,26 +1212,26 @@ async function finalizeSelected() {
 }
 
 async function unfinalizeDate() {
-    let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
+    const dateStr = prompt("Enter date to unfinalize (YYYY-MM-DD)");
 
-    if (!d) {
+    if (!dateStr) {
         return;
     }
 
     try {
-        let res = await fetch("/attendance/unfinalize", {
+        const response = await fetch("/attendance/unfinalize", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ date: d })
+            body: JSON.stringify({ date: dateStr })
         });
 
-        let data = await res.json();
+        const data = await response.json();
 
-        if (!res.ok || data.ok === false) {
+        if (!response.ok || data.ok === false) {
             throw new Error("Unfinalize failed");
         }
 
-        alert("Unfinalized " + d);
+        alert("Unfinalized " + dateStr);
         await loadBoard();
     } catch (err) {
         console.error("UNFINALIZE ERROR:", err);
@@ -1184,7 +1249,7 @@ async function wakeServer() {
     }
 }
 
-window.onload = function () {
+window.onload = function() {
     loadBoard();
 };
 </script>

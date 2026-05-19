@@ -90,6 +90,11 @@ def upgrade_db():
     except Exception:
         pass
 
+    try:
+        cur.execute("ALTER TABLE clients ADD COLUMN challenge_active INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -216,7 +221,7 @@ def build_leaderboard_data(group: str):
         attendance = r["attendance_count"] or 0
         previous = r["previous_total"] or 0
 
-        current = snapshot + attendance
+        current = baseline + snapshot + attendance
         lifetime = previous + current
 
         results.append({
@@ -261,7 +266,8 @@ def debug_clients():
             group_name,
             COALESCE(baseline_score, 0) AS baseline_score,
             COALESCE(snapshot_score, 0) AS snapshot_score,
-            COALESCE(previous_total, 0) AS previous_total
+            COALESCE(previous_total, 0) AS previous_total,
+            COALESCE(challenge_active, 0) AS challenge_active
         FROM clients
         ORDER BY group_name, last_name, first_name
     """).fetchall()
@@ -833,10 +839,11 @@ th { background:#1e293b; font-size:12px; min-width:110px; vertical-align:bottom;
 .active { background:#22c55e; }
 .finalized-col { box-shadow: inset 0 0 0 2px #d4af37; }
 .locked { background:#475569; cursor:not-allowed; }
-.wrap { overflow-x:auto; }
+.wrap { overflow-x:auto; margin-top:12px; }
 button { margin-right:6px; }
 .legend { margin-top:10px; font-size:12px; color:#cbd5e1; }
 #dateSelector { margin-top:10px; }
+.status { margin:10px 0; color:#cbd5e1; font-size:13px; }
 </style>
 </head>
 <body>
@@ -851,8 +858,8 @@ Group:
 <option>Personal</option>
 </select>
 
-Start: <input type="date" id="start" value="2026-03-09">
-End: <input type="date" id="end" value="2026-04-20">
+Start: <input type="date" id="start" value="2026-04-22">
+End: <input type="date" id="end" value="2026-06-17">
 
 Days:
 <label><input type="checkbox" class="daybox" value="0">Sun</label>
@@ -869,6 +876,8 @@ Days:
 <button onclick="unfinalizeDate()">Unfinalize</button>
 <button onclick="wakeServer()">Wake</button>
 </div>
+
+<div id="status" class="status">Loading attendance board...</div>
 
 <h3 style="margin-top:10px;">Finalize Dates</h3>
 <div id="dateSelector" style="
@@ -893,47 +902,65 @@ let state = {
     finalizedDates: new Set()
 };
 
+function setStatus(message) {
+    let el = document.getElementById("status");
+    if (el) {
+        el.textContent = message;
+    }
+}
+
 function getSelectedDays() {
     return Array.from(document.querySelectorAll(".daybox:checked"))
-        .map(c => parseInt(c.value));
+        .map(function(c) { return parseInt(c.value); });
 }
 
 function buildDates() {
-    let s = new Date(document.getElementById("start").value + "T12:00:00");
-    let e = new Date(document.getElementById("end").value + "T12:00:00");
+    let startValue = document.getElementById("start").value;
+    let endValue = document.getElementById("end").value;
+
+    if (!startValue || !endValue) {
+        return [];
+    }
+
+    let s = new Date(startValue + "T12:00:00");
+    let e = new Date(endValue + "T12:00:00");
     let days = getSelectedDays();
     let arr = [];
 
     while (s <= e) {
-        if (days.includes(s.getDay())) {
+        if (days.indexOf(s.getDay()) !== -1) {
             let y = s.getFullYear();
             let m = String(s.getMonth() + 1).padStart(2, "0");
             let d = String(s.getDate()).padStart(2, "0");
-            arr.push(`${y}-${m}-${d}`);
+            arr.push(y + "-" + m + "-" + d);
         }
         s.setDate(s.getDate() + 1);
     }
+
     return arr;
 }
 
 function formatHeaderDate(dateStr) {
-    const dt = new Date(dateStr + "T12:00:00");
-    const weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-    const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    const dayName = weekdays[dt.getDay()];
-    const dayNum = dt.getDate();
-    const monthName = months[dt.getMonth()];
-    const yearShort = String(dt.getFullYear()).slice(-2);
-    return `${dayName}, ${dayNum} ${monthName} ${yearShort}`;
+    let dt = new Date(dateStr + "T12:00:00");
+    let weekdays = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    let months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    let dayName = weekdays[dt.getDay()];
+    let dayNum = dt.getDate();
+    let monthName = months[dt.getMonth()];
+    let yearShort = String(dt.getFullYear()).slice(-2);
+    return dayName + ", " + dayNum + " " + monthName + " " + yearShort;
 }
 
 function safeDisplayName(c) {
-
     let last = c.last_name || "";
     let first = c.first_name || "";
 
     if (last || first) {
-        return (last + ", " + first).replace(/^,\s*/, "").trim();
+        let name = (last + ", " + first).trim();
+        if (name.startsWith(",")) {
+            name = name.substring(1).trim();
+        }
+        return name;
     }
 
     return c.display_name || "Unknown";
@@ -941,7 +968,17 @@ function safeDisplayName(c) {
 
 async function loadBoard() {
     try {
+        setStatus("Loading...");
+
         let g = document.getElementById("group").value;
+
+        let metaRes = await fetch("/debug/challenge");
+        let metaData = await metaRes.json();
+
+        if (metaData.ok && metaData.active_challenge) {
+            document.getElementById("start").value = metaData.active_challenge.start_date;
+            document.getElementById("end").value = metaData.active_challenge.end_date;
+        }
 
         let clientsRes = await fetch("/attendance/data?group=" + encodeURIComponent(g));
         let clientsData = await clientsRes.json();
@@ -952,6 +989,7 @@ async function loadBoard() {
         if (!clientsRes.ok || clientsData.ok === false) {
             throw new Error("Client load failed");
         }
+
         if (!attRes.ok || attData.ok === false) {
             throw new Error("Attendance load failed");
         }
@@ -962,8 +1000,11 @@ async function loadBoard() {
         state.dates = buildDates();
 
         render();
+
+        setStatus("Loaded " + state.clients.length + " clients and " + state.dates.length + " class dates.");
     } catch (err) {
         console.error("LOAD ERROR:", err);
+        setStatus("Load failed. Press F12 and check Console.");
         alert("Load failed. Press F12 and check Console.");
     }
 }
@@ -971,21 +1012,32 @@ async function loadBoard() {
 function render() {
     let html = "<tr><th class='name'>Name</th>";
 
-    for (let d of state.dates) {
+    for (let i = 0; i < state.dates.length; i++) {
+        let d = state.dates[i];
         let cls = state.finalizedDates.has(d) ? "finalized-col" : "";
         html += "<th class='" + cls + "'>" + formatHeaderDate(d) + "</th>";
     }
+
     html += "</tr>";
 
-    for (let c of state.clients) {
+    for (let cIndex = 0; cIndex < state.clients.length; cIndex++) {
+        let c = state.clients[cIndex];
+
+        if (!c || !c.client_id) {
+            continue;
+        }
+
         html += "<tr><td class='name'>" + safeDisplayName(c) + "</td>";
 
-        for (let d of state.dates) {
+        for (let dIndex = 0; dIndex < state.dates.length; dIndex++) {
+            let d = state.dates[dIndex];
             let key = c.client_id + "|" + d;
             let classes = state.selected[key] ? "cell active" : "cell";
             let locked = state.finalizedDates.has(d);
 
-            if (locked) classes += " locked finalized-col";
+            if (locked) {
+                classes += " locked finalized-col";
+            }
 
             if (locked) {
                 html += "<td class='" + classes + "'></td>";
@@ -1000,27 +1052,32 @@ function render() {
     document.getElementById("grid").innerHTML = html;
 
     let selectorHTML = "<b>Select Dates to Finalize:</b><br>";
-    for (let d of state.dates) {
+
+    for (let i = 0; i < state.dates.length; i++) {
+        let d = state.dates[i];
         let checked = state.finalizedDates.has(d) ? "checked" : "";
-        selectorHTML += `
-            <label style="margin-right:10px;">
-                <input type="checkbox" class="finalizeBox" value="${d}" ${checked}>
-                ${formatHeaderDate(d)}
-            </label><br>
-        `;
+        selectorHTML += "<label style='margin-right:10px;'>";
+        selectorHTML += "<input type='checkbox' class='finalizeBox' value='" + d + "' " + checked + "> ";
+        selectorHTML += formatHeaderDate(d);
+        selectorHTML += "</label><br>";
     }
+
     document.getElementById("dateSelector").innerHTML = selectorHTML;
 }
 
 function toggleCell(clientId, dateStr) {
-    if (state.finalizedDates.has(dateStr)) return;
+    if (state.finalizedDates.has(dateStr)) {
+        return;
+    }
 
     let key = clientId + "|" + dateStr;
+
     if (state.selected[key]) {
         delete state.selected[key];
     } else {
         state.selected[key] = true;
     }
+
     render();
 }
 
@@ -1031,7 +1088,10 @@ async function saveBoard() {
 
         for (let key in state.selected) {
             let parts = key.split("|");
-            if (parts.length !== 2) continue;
+
+            if (parts.length !== 2) {
+                continue;
+            }
 
             selectedRecords.push({
                 client_id: parts[0],
@@ -1049,6 +1109,7 @@ async function saveBoard() {
         });
 
         let data = await res.json();
+
         if (!res.ok || data.ok === false) {
             throw new Error("Save failed");
         }
@@ -1063,7 +1124,7 @@ async function saveBoard() {
 
 async function finalizeSelected() {
     let boxes = document.querySelectorAll(".finalizeBox:checked");
-    let dates = Array.from(boxes).map(b => b.value);
+    let dates = Array.from(boxes).map(function(b) { return b.value; });
 
     if (dates.length === 0) {
         alert("No dates selected.");
@@ -1095,7 +1156,10 @@ async function finalizeSelected() {
 
 async function unfinalizeDate() {
     let d = prompt("Enter date to unfinalize (YYYY-MM-DD)");
-    if (!d) return;
+
+    if (!d) {
+        return;
+    }
 
     try {
         let res = await fetch("/attendance/unfinalize", {
@@ -1105,6 +1169,7 @@ async function unfinalizeDate() {
         });
 
         let data = await res.json();
+
         if (!res.ok || data.ok === false) {
             throw new Error("Unfinalize failed");
         }
@@ -1135,6 +1200,7 @@ window.onload = function () {
 </body>
 </html>
 """
+
 
 
 # =========================================================

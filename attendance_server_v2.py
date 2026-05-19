@@ -889,9 +889,14 @@ function formatHeaderDate(dateStr) {
 }
 
 function safeDisplayName(c) {
-    if ((c.last_name || "").trim() || (c.first_name || "").trim()) {
-        return `${c.last_name || ""}, ${c.first_name || ""}`.replace(/^,\\s*/, "").trim();
+
+    let last = c.last_name || "";
+    let first = c.first_name || "";
+
+    if (last || first) {
+        return (last + ", " + first).replace(/^,\s*/, "").trim();
     }
+
     return c.display_name || "Unknown";
 }
 

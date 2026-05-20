@@ -309,7 +309,26 @@ def debug_challenge():
     conn.close()
     return {"ok": True, "active_challenge": dict(active) if active else None}
 
+@app.get("/debug/set_previous")
+def debug_set_previous(client_id: str, amount: float):
 
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE clients
+        SET previous_total = ?
+        WHERE client_id = ?
+    """, (amount, client_id))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "previous_total": amount
+    }
 # =========================================================
 # ATTENDANCE DATA
 # =========================================================

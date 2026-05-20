@@ -756,7 +756,8 @@ async function loadBoard(){
 
     document.getElementById("table").innerHTML = html;
 }
-    window.onload = async function() {
+
+window.onload = async function() {
 
     try {
 
@@ -770,7 +771,6 @@ async function loadBoard(){
 
     }
 };
-}
 </script>
 
 </body>

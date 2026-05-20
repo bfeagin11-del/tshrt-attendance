@@ -276,6 +276,48 @@ def debug_clients():
 
     return {"ok": True, "count": len(rows), "clients": [dict(r) for r in rows]}
 
+@app.get("/debug/seed_previous_totals")
+def seed_previous_totals():
+
+    updates = {
+        "Deborah_Crawford": 49,
+        "Bennie_Feagin": 49,
+        "Tracy_DeLa_Cruz": 42,
+        "Luis_Ibarra": 42,
+        "Michelle_Lozano": 42,
+        "Eduardo_Carrasco": 41,
+        "Viviana_Example": 40,
+        "Aracely_Gomez": 40,
+        "Paloma_Lozano": 39,
+        "Paola_Sandoval": 37,
+        "Stephanie_Morales": 35,
+        "Melizza_Feagin": 32,
+        "America_Martinez": 31,
+        "Mariana_Ibarra": 29,
+        "Rosalba_Cortez": 28,
+        "Freddy_Vasquez": 27,
+        "Briseidy_Alaniz": 21,
+        "Erica_Torres": 21
+    }
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    for client_id, total in updates.items():
+
+        cur.execute("""
+            UPDATE clients
+            SET previous_total = ?
+            WHERE client_id = ?
+        """, (total, client_id))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "updated": updates
+    }
 @app.get("/admin/reactivate_all")
 def reactivate_all():
 

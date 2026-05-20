@@ -724,15 +724,23 @@ function formatAttendance(v) {
     return v + " 🚨 Risk";
 }
 async function loadBoard(){
+
     let g = document.getElementById("group").value;
+
     let res = await fetch("/leaderboard/data?group=" + encodeURIComponent(g));
+
     let data = await res.json();
+
+    console.log("LEADERBOARD DATA:", data);
 
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
     let i = 1;
-    for (let r of data.rows){
+
+    for (let r of (data.rows || [])) {
+
         let cls = (i === 1) ? "gold" : "";
+
         html += "<tr>";
         html += "<td class='rank " + cls + "'>" + i + "</td>";
         html += "<td>" + r.name + "</td>";
@@ -742,24 +750,23 @@ async function loadBoard(){
         html += "<td>" + r.current_score + "</td>";
         html += "<td>" + r.lifetime_score + "</td>";
         html += "</tr>";
+
         i++;
     }
 
+    document.getElementById("table").innerHTML = html;
+}
     window.onload = async function() {
-
-    console.log("TSHRT Attendance Script Started");
 
     try {
 
         await loadBoard();
 
-        console.log("Board Loaded Successfully");
+        console.log("Leaderboard Loaded");
 
     } catch(err) {
 
-        console.error("WINDOW LOAD ERROR:", err);
-
-        setStatus("Window load failed: " + err.message);
+        console.error("Leaderboard Error:", err);
 
     }
 };

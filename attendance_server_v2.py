@@ -731,7 +731,7 @@ async function loadBoard(){
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
 
     let i = 1;
-    for (let r of data.leaderboard){
+    for (let r of data.rows){
         let cls = (i === 1) ? "gold" : "";
         html += "<tr>";
         html += "<td class='rank " + cls + "'>" + i + "</td>";

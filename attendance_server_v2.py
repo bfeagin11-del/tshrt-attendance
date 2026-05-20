@@ -1077,10 +1077,9 @@ async function loadBoard() {
 }
 
 function renderEmpty() {
+    console.log("Rendering Empty Grid...");
     document.getElementById("grid").innerHTML = "";
-    console.log("Rendering Grid...");
-    document.getElementById("grid").innerHTML = html;
-    console.log("Grid Rendered");
+    console.log("Empty Grid Rendered");
 }
 
 function render() {
@@ -1291,7 +1290,11 @@ window.onload = async function() {
 
     }
 };
+</script>
 
+</body>
+</html>
+"""
 
 
 # =========================================================

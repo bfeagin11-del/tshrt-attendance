@@ -275,7 +275,9 @@ def debug_clients():
     conn.close()
 
     return {"ok": True, "count": len(rows), "clients": [dict(r) for r in rows]}
-
+# =========================================================
+# STARTUP
+# =========================================================
 @app.get("/debug/seed_previous_totals")
 def seed_previous_totals():
 

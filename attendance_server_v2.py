@@ -926,31 +926,33 @@ function setStatus(message) {
     }
 }
 
-function fetchJsonWithTimeout(url, timeoutMs) {
-    return new Promise(function(resolve, reject) {
-        const timer = setTimeout(function() {
-            reject(new Error("Request timed out: " + url));
-        }, timeoutMs);
+async function fetchJsonWithTimeout(url, timeoutMs = 8000) {
 
-        fetch(url)
-            .then(function(response) {
-                clearTimeout(timer);
-                if (!response.ok) {
-                    reject(new Error("HTTP " + response.status + " from " + url));
-                    return;
-                }
-                return response.json();
-            })
-            .then(function(data) {
-                if (data !== undefined) {
-                    resolve(data);
-                }
-            })
-            .catch(function(error) {
-                clearTimeout(timer);
-                reject(error);
-            });
-    });
+    const controller = new AbortController();
+
+    const timeout = setTimeout(() => {
+        controller.abort();
+    }, timeoutMs);
+
+    try {
+
+        const response = await fetch(url, {
+            signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status);
+        }
+
+        return await response.json();
+
+    } catch(err) {
+
+        clearTimeout(timeout);
+        throw err;
+    }
 }
 
 function getSelectedDays() {

@@ -725,7 +725,7 @@ function formatAttendance(v) {
 }
 async function loadBoard(){
     let g = document.getElementById("group").value;
-    let res = await fetch("/leaderboard?group=" + encodeURIComponent(g));
+    let res = await fetch("/leaderboard/data?group=" + encodeURIComponent(g));
     let data = await res.json();
 
     let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";

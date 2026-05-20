@@ -586,7 +586,14 @@ def unfinalize_date(payload: DatePayload):
 @app.get("/leaderboard")
 def leaderboard(group: str):
     return {"ok": True, "leaderboard": build_leaderboard_data(group)}
+    
+@app.get("/leaderboard/data")
+def leaderboard_data(group: str = "ABC Class"):
 
+    return {
+        "ok": True,
+        "rows": build_leaderboard_data(group)
+    }
 
 @app.get("/board", response_class=HTMLResponse)
 def leaderboard_page():

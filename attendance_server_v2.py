@@ -1120,7 +1120,7 @@ function render() {
 
             } else {
 
-               html += '<td class="' + classes + '" onclick="toggleCell(\'' + client.client_id + '\', \'' + dateStr + '\')">&nbsp;</td>';
+               html += `<td class="${classes}" onclick="toggleCell('${client.client_id}','${dateStr}')">&nbsp;</td>`;
 
             }
         }

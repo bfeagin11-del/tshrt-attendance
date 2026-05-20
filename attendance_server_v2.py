@@ -738,7 +738,24 @@ async function loadBoard(){
         i++;
     }
 
-    document.getElementById("table").innerHTML = html;
+    window.onload = async function() {
+
+    console.log("TSHRT Attendance Script Started");
+
+    try {
+
+        await loadBoard();
+
+        console.log("Board Loaded Successfully");
+
+    } catch(err) {
+
+        console.error("WINDOW LOAD ERROR:", err);
+
+        setStatus("Window load failed: " + err.message);
+
+    }
+};
 }
 </script>
 
@@ -1061,7 +1078,9 @@ async function loadBoard() {
 
 function renderEmpty() {
     document.getElementById("grid").innerHTML = "";
-    document.getElementById("dateSelector").innerHTML = "";
+    console.log("Rendering Grid...");
+    document.getElementById("grid").innerHTML = html;
+    console.log("Grid Rendered");
 }
 
 function render() {
@@ -1093,10 +1112,15 @@ function render() {
             let classes = state.selected[key] ? "cell active" : "cell";
 
             if (locked) {
+
                 classes += " locked finalized-col";
+
                 html += "<td class='" + classes + "'></td>";
+
             } else {
-                html += "<td class='" + classes + "' onclick=\"toggleCell('" + client.client_id + "','" + dateStr + "')\"></td>";
+
+                html += "<td class='" + classes + "' onclick=\"toggleCell('" + client.client_id + "','" + dateStr + "')\">&nbsp;</td>";
+
             }
         }
 
@@ -1249,14 +1273,24 @@ async function wakeServer() {
     }
 }
 
-window.onload = function() {
-    loadBoard();
-};
-</script>
+window.onload = async function() {
 
-</body>
-</html>
-"""
+    console.log("TSHRT Attendance Script Started");
+
+    try {
+
+        await loadBoard();
+
+        console.log("Board Loaded Successfully");
+
+    } catch(err) {
+
+        console.error("WINDOW LOAD ERROR:", err);
+
+        setStatus("Window load failed: " + err.message);
+
+    }
+};
 
 
 

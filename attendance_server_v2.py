@@ -309,9 +309,12 @@ def seed_previous_totals():
 
         cur.execute("""
             UPDATE clients
-            SET previous_total = ?
+            SET previous_total = ?,
+                baseline_score = 0,
+                snapshot_score = 0,
+                challenge_active = 0
             WHERE client_id = ?
-        """, (total, client_id))
+        """, (new_lifetime, client_id))
 
     conn.commit()
     conn.close()
@@ -1419,7 +1422,9 @@ def close_challenge():
         cur.execute("""
             UPDATE clients
             SET previous_total = ?,
-                snapshot_score = 0
+                baseline_score = 0,
+                snapshot_score = 0,
+                challenge_active = 0
             WHERE client_id = ?
         """, (new_lifetime, client_id))
 
@@ -1521,7 +1526,7 @@ def rebuild_lifetime():
         "updated": updated
     }
 @app.post("/challenge/start")
-def start_challenge(start_date: str, weeks: int = 6):
+def start_challenge(start_date: str, weeks: int = 8):
     conn = get_conn()
     cur = conn.cursor()
 

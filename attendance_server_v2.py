@@ -251,7 +251,6 @@ def home():
 def wake():
     return {"ok": True, "status": "awake"}
 
-
 @app.get("/debug/clients")
 def debug_clients():
     conn = get_conn()
@@ -275,6 +274,28 @@ def debug_clients():
     conn.close()
 
     return {"ok": True, "count": len(rows), "clients": [dict(r) for r in rows]}
+    
+@app.get("/debug/client_ids")
+def debug_client_ids():
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    rows = cur.execute("""
+        SELECT
+            client_id,
+            display_name
+        FROM clients
+        ORDER BY display_name
+    """).fetchall()
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "rows": [dict(r) for r in rows]
+    }
+
 # =========================================================
 # STARTUP
 # =========================================================

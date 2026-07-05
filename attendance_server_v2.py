@@ -335,7 +335,7 @@ def seed_previous_totals():
                 snapshot_score = 0,
                 challenge_active = 0
             WHERE client_id = ?
-        """, (new_lifetime, client_id))
+        """, (total, client_id))
 
     conn.commit()
     conn.close()

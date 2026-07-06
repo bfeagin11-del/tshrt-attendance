@@ -1581,6 +1581,8 @@ def start_challenge(start_date: str, weeks: int = 8):
         "message": "New challenge scheduled"
     }
 
+
+
 # =========================================================
 # ADMIN - DUPLICATE CLIENT MERGE
 # TEMPORARY PRODUCTION REPAIR ENDPOINT
@@ -1590,6 +1592,10 @@ def start_challenge(start_date: str, weeks: int = 8):
 def merge_duplicate_clients(execute: bool = False):
     """
     Preview or execute a safe merge of duplicate cloud clients.
+
+    Canonical rule for TSHRT:
+        Keep First_Last when it exists because that matches local JSON files,
+        cloud_sync client_id values, reports, and the rest of the TSHRT system.
 
     Preview only:
         /admin/merge_duplicate_clients
@@ -1603,9 +1609,11 @@ def merge_duplicate_clients(execute: bool = False):
     - All changes occur inside one transaction.
     - Any verification failure rolls back the transaction.
     - Attendance rows are merged without violating UNIQUE(client_id, attended_date).
-    - All other tables with a client_id column are updated to the kept ID.
+    - All tables with a client_id column are updated to the kept ID.
+    - Safe to rerun after completion.
     """
 
+    import re
     import shutil
     from pathlib import Path
     from datetime import datetime
@@ -1616,6 +1624,46 @@ def merge_duplicate_clients(execute: bool = False):
         "previous_total",
         "challenge_active",
     ]
+
+    def clean_token(value):
+        value = (value or "").strip()
+        value = re.sub(r"[^A-Za-z0-9]+", "_", value)
+        value = re.sub(r"_+", "_", value).strip("_")
+        return value
+
+    def split_display_name(display_name):
+        display_name = (display_name or "").strip()
+        if not display_name:
+            return "", ""
+
+        if "," in display_name:
+            last, first = [p.strip() for p in display_name.split(",", 1)]
+            return first, last
+
+        parts = display_name.split()
+        if len(parts) >= 2:
+            return parts[0], " ".join(parts[1:])
+        if len(parts) == 1:
+            return parts[0], ""
+        return "", ""
+
+    def first_last_id_for_row(row):
+        first = (row["first_name"] or "").strip() if "first_name" in row.keys() else ""
+        last = (row["last_name"] or "").strip() if "last_name" in row.keys() else ""
+
+        if not first or not last:
+            parsed_first, parsed_last = split_display_name(row["display_name"] if "display_name" in row.keys() else "")
+            first = first or parsed_first
+            last = last or parsed_last
+
+        first = clean_token(first)
+        last = clean_token(last)
+
+        if first and last:
+            return f"{first}_{last}"
+        if first:
+            return first
+        return clean_token(row["display_name"] if "display_name" in row.keys() else row["client_id"])
 
     def get_columns(cur, table):
         return [r["name"] for r in cur.execute(f'PRAGMA table_info("{table}")').fetchall()]
@@ -1654,24 +1702,28 @@ def merge_duplicate_clients(execute: bool = False):
 
     def choose_keep_id(cur, records):
         """
-        Keep the strongest existing record.
-
-        This avoids inventing a new client_id that local cloud_sync may not send later.
-        Strongest means highest total of previous/baseline/snapshot/attendance.
-        Ties favor IDs that look like Last_First, then the longer/more descriptive ID.
+        Production rule:
+        1. Keep First_Last if it already exists.
+        2. If First_Last does not exist, keep the strongest existing row.
         """
+        ids = {r["client_id"] for r in records if r["client_id"]}
+
+        # Prefer First_Last derived from the actual row names.
+        for r in records:
+            candidate = first_last_id_for_row(r)
+            if candidate in ids:
+                return candidate
+
+        # Fallback: strongest record, ties favor longer descriptive ID and not placeholder.
         scored = []
         for r in records:
             cid = r["client_id"]
-            first = (r["first_name"] or "").strip()
-            last = (r["last_name"] or "").strip()
-            looks_last_first = bool(first and last and cid == f"{last}_{first}".replace(" ", "_"))
+            placeholder_penalty = -1 if str(cid).lower() in ("new_client", "test", "sample") else 0
             scored.append((
                 score_strength(cur, r),
-                1 if looks_last_first else 0,
+                placeholder_penalty,
                 len(cid or ""),
                 cid,
-                r,
             ))
         scored.sort(reverse=True)
         return scored[0][3]
@@ -1703,6 +1755,7 @@ def merge_duplicate_clients(execute: bool = False):
                 "keep_id": keep_id,
                 "remove_ids": remove_ids,
                 "all_ids": ids,
+                "canonical_rule": "First_Last preferred",
             })
 
         return plans
@@ -1839,6 +1892,7 @@ def merge_duplicate_clients(execute: bool = False):
             "ok": True,
             "execute": execute,
             "mode": "EXECUTE" if execute else "PREVIEW_ONLY",
+            "canonical_rule": "First_Last preferred",
             "backup": None,
             "tables_with_client_id": tables,
             "clients_before": cur.execute("SELECT COUNT(*) FROM clients").fetchone()[0],

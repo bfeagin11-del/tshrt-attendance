@@ -1581,6 +1581,362 @@ def start_challenge(start_date: str, weeks: int = 8):
         "message": "New challenge scheduled"
     }
 
+# =========================================================
+# ADMIN - DUPLICATE CLIENT MERGE
+# TEMPORARY PRODUCTION REPAIR ENDPOINT
+# =========================================================
+
+@app.get("/admin/merge_duplicate_clients")
+def merge_duplicate_clients(execute: bool = False):
+    """
+    Preview or execute a safe merge of duplicate cloud clients.
+
+    Preview only:
+        /admin/merge_duplicate_clients
+
+    Execute:
+        /admin/merge_duplicate_clients?execute=true
+
+    Safety rules:
+    - Preview mode makes no changes.
+    - Execute mode creates a database backup first.
+    - All changes occur inside one transaction.
+    - Any verification failure rolls back the transaction.
+    - Attendance rows are merged without violating UNIQUE(client_id, attended_date).
+    - All other tables with a client_id column are updated to the kept ID.
+    """
+
+    import shutil
+    from pathlib import Path
+    from datetime import datetime
+
+    SCORE_COLUMNS = [
+        "baseline_score",
+        "snapshot_score",
+        "previous_total",
+        "challenge_active",
+    ]
+
+    def get_columns(cur, table):
+        return [r["name"] for r in cur.execute(f'PRAGMA table_info("{table}")').fetchall()]
+
+    def get_client_id_tables(cur):
+        rows = cur.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table'
+              AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+        """).fetchall()
+
+        tables = []
+        for r in rows:
+            table = r["name"]
+            if "client_id" in get_columns(cur, table):
+                tables.append(table)
+        return tables
+
+    def count_attendance(cur, client_id):
+        return cur.execute("""
+            SELECT COUNT(*)
+            FROM attendance
+            WHERE client_id = ?
+              AND COALESCE(present,1) = 1
+        """, (client_id,)).fetchone()[0]
+
+    def score_strength(cur, row):
+        client_id = row["client_id"]
+        baseline = float(row["baseline_score"] or 0) if "baseline_score" in row.keys() else 0
+        snapshot = float(row["snapshot_score"] or 0) if "snapshot_score" in row.keys() else 0
+        previous = float(row["previous_total"] or 0) if "previous_total" in row.keys() else 0
+        attendance = count_attendance(cur, client_id)
+        return previous + baseline + snapshot + attendance
+
+    def choose_keep_id(cur, records):
+        """
+        Keep the strongest existing record.
+
+        This avoids inventing a new client_id that local cloud_sync may not send later.
+        Strongest means highest total of previous/baseline/snapshot/attendance.
+        Ties favor IDs that look like Last_First, then the longer/more descriptive ID.
+        """
+        scored = []
+        for r in records:
+            cid = r["client_id"]
+            first = (r["first_name"] or "").strip()
+            last = (r["last_name"] or "").strip()
+            looks_last_first = bool(first and last and cid == f"{last}_{first}".replace(" ", "_"))
+            scored.append((
+                score_strength(cur, r),
+                1 if looks_last_first else 0,
+                len(cid or ""),
+                cid,
+                r,
+            ))
+        scored.sort(reverse=True)
+        return scored[0][3]
+
+    def build_plans(cur):
+        rows = cur.execute("""
+            SELECT *
+            FROM clients
+            WHERE TRIM(COALESCE(display_name,'')) <> ''
+            ORDER BY display_name, client_id
+        """).fetchall()
+
+        groups = {}
+        for r in rows:
+            key = (r["display_name"] or "").strip().lower()
+            groups.setdefault(key, []).append(r)
+
+        plans = []
+        for _key, records in groups.items():
+            ids = sorted({r["client_id"] for r in records if r["client_id"]})
+            if len(ids) <= 1:
+                continue
+
+            keep_id = choose_keep_id(cur, records)
+            remove_ids = [cid for cid in ids if cid != keep_id]
+
+            plans.append({
+                "display_name": records[0]["display_name"],
+                "keep_id": keep_id,
+                "remove_ids": remove_ids,
+                "all_ids": ids,
+            })
+
+        return plans
+
+    def merge_attendance(cur, old_id, keep_id):
+        moved = 0
+        collisions = 0
+
+        rows = cur.execute("""
+            SELECT attended_date,
+                   COALESCE(present,1) AS present,
+                   COALESCE(finalized,0) AS finalized
+            FROM attendance
+            WHERE client_id = ?
+        """, (old_id,)).fetchall()
+
+        for r in rows:
+            existing = cur.execute("""
+                SELECT id
+                FROM attendance
+                WHERE client_id = ?
+                  AND attended_date = ?
+                LIMIT 1
+            """, (keep_id, r["attended_date"])).fetchone()
+
+            if existing:
+                collisions += 1
+                cur.execute("""
+                    UPDATE attendance
+                    SET present = MAX(COALESCE(present,1), ?),
+                        finalized = MAX(COALESCE(finalized,0), ?)
+                    WHERE client_id = ?
+                      AND attended_date = ?
+                """, (
+                    int(r["present"] or 1),
+                    int(r["finalized"] or 0),
+                    keep_id,
+                    r["attended_date"],
+                ))
+
+                cur.execute("""
+                    DELETE FROM attendance
+                    WHERE client_id = ?
+                      AND attended_date = ?
+                """, (old_id, r["attended_date"]))
+            else:
+                moved += 1
+                cur.execute("""
+                    UPDATE attendance
+                    SET client_id = ?
+                    WHERE client_id = ?
+                      AND attended_date = ?
+                """, (keep_id, old_id, r["attended_date"]))
+
+        return moved, collisions
+
+    def merge_client_scores(cur, old_id, keep_id):
+        old_row = cur.execute("SELECT * FROM clients WHERE client_id = ?", (old_id,)).fetchone()
+        keep_row = cur.execute("SELECT * FROM clients WHERE client_id = ?", (keep_id,)).fetchone()
+        if not old_row or not keep_row:
+            return False
+
+        updates = {}
+        for col in SCORE_COLUMNS:
+            if col in old_row.keys() and col in keep_row.keys():
+                old_value = float(old_row[col] or 0)
+                keep_value = float(keep_row[col] or 0)
+                updates[col] = max(old_value, keep_value)
+
+        if "challenge_active" in updates:
+            updates["challenge_active"] = int(updates["challenge_active"])
+
+        if updates:
+            set_clause = ", ".join([f"{col} = ?" for col in updates.keys()])
+            params = list(updates.values()) + [keep_id]
+            cur.execute(f"UPDATE clients SET {set_clause} WHERE client_id = ?", params)
+
+        return True
+
+    def update_other_client_id_tables(cur, tables, old_id, keep_id):
+        updated = 0
+        for table in tables:
+            if table in ("clients", "attendance"):
+                continue
+            count = cur.execute(
+                f'SELECT COUNT(*) FROM "{table}" WHERE client_id = ?',
+                (old_id,)
+            ).fetchone()[0]
+            if count:
+                cur.execute(
+                    f'UPDATE "{table}" SET client_id = ? WHERE client_id = ?',
+                    (keep_id, old_id)
+                )
+                updated += count
+        return updated
+
+    def duplicate_groups(cur):
+        return cur.execute("""
+            SELECT LOWER(TRIM(display_name)) AS name_key, COUNT(*) AS c
+            FROM clients
+            WHERE TRIM(COALESCE(display_name,'')) <> ''
+            GROUP BY LOWER(TRIM(display_name))
+            HAVING COUNT(*) > 1
+        """).fetchall()
+
+    def orphan_refs(cur, tables):
+        valid_ids = {
+            r["client_id"]
+            for r in cur.execute("SELECT client_id FROM clients").fetchall()
+        }
+        problems = []
+        for table in tables:
+            if table == "clients":
+                continue
+            rows = cur.execute(
+                f'SELECT DISTINCT client_id FROM "{table}" WHERE client_id IS NOT NULL'
+            ).fetchall()
+            for r in rows:
+                if r["client_id"] not in valid_ids:
+                    problems.append({
+                        "table": table,
+                        "client_id": r["client_id"],
+                    })
+        return problems
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        tables = get_client_id_tables(cur)
+        plans = build_plans(cur)
+
+        report = {
+            "ok": True,
+            "execute": execute,
+            "mode": "EXECUTE" if execute else "PREVIEW_ONLY",
+            "backup": None,
+            "tables_with_client_id": tables,
+            "clients_before": cur.execute("SELECT COUNT(*) FROM clients").fetchone()[0],
+            "duplicate_groups_before": len(duplicate_groups(cur)),
+            "plans_found": len(plans),
+            "plans": plans,
+            "summary": {
+                "attendance_moved": 0,
+                "attendance_collisions": 0,
+                "other_rows_updated": 0,
+                "clients_removed": 0,
+                "skipped": 0,
+            },
+            "verification": {},
+        }
+
+        if not execute:
+            conn.close()
+            return report
+
+        db_file = Path(DB_PATH)
+        backup_dir = db_file.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"cloud_backup_before_duplicate_merge_{stamp}.db"
+        shutil.copy2(DB_PATH, backup_path)
+        report["backup"] = str(backup_path)
+
+        cur.execute("BEGIN")
+
+        for plan in plans:
+            keep_id = plan["keep_id"]
+
+            for old_id in plan["remove_ids"]:
+                if old_id == keep_id:
+                    report["summary"]["skipped"] += 1
+                    continue
+
+                old_exists = cur.execute("SELECT 1 FROM clients WHERE client_id = ?", (old_id,)).fetchone()
+                keep_exists = cur.execute("SELECT 1 FROM clients WHERE client_id = ?", (keep_id,)).fetchone()
+
+                if not old_exists or not keep_exists:
+                    report["summary"]["skipped"] += 1
+                    continue
+
+                moved, collisions = merge_attendance(cur, old_id, keep_id)
+                report["summary"]["attendance_moved"] += moved
+                report["summary"]["attendance_collisions"] += collisions
+
+                report["summary"]["other_rows_updated"] += update_other_client_id_tables(
+                    cur, tables, old_id, keep_id
+                )
+
+                merge_client_scores(cur, old_id, keep_id)
+
+                cur.execute("DELETE FROM clients WHERE client_id = ?", (old_id,))
+                report["summary"]["clients_removed"] += 1
+
+        integrity = cur.execute("PRAGMA integrity_check").fetchone()[0]
+        remaining_duplicates = duplicate_groups(cur)
+        remaining_orphans = orphan_refs(cur, tables)
+        clients_after = cur.execute("SELECT COUNT(*) FROM clients").fetchone()[0]
+
+        report["clients_after"] = clients_after
+        report["duplicate_groups_after"] = len(remaining_duplicates)
+        report["verification"] = {
+            "sqlite_integrity": integrity,
+            "remaining_duplicate_groups": [dict(r) for r in remaining_duplicates],
+            "orphan_references": remaining_orphans,
+            "passed": integrity == "ok" and len(remaining_duplicates) == 0 and len(remaining_orphans) == 0,
+        }
+
+        if not report["verification"]["passed"]:
+            conn.rollback()
+            report["ok"] = False
+            report["rolled_back"] = True
+            report["message"] = "Verification failed. Transaction rolled back."
+            conn.close()
+            return report
+
+        conn.commit()
+        report["rolled_back"] = False
+        report["message"] = "Duplicate client merge completed successfully."
+        conn.close()
+        return report
+
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        conn.close()
+        return {
+            "ok": False,
+            "execute": execute,
+            "error": str(e),
+            "message": "Merge failed. Transaction rolled back.",
+        }
 
 # =========================================================
 # STARTUP

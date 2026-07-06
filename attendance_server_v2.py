@@ -1624,6 +1624,9 @@ def merge_duplicate_clients(execute: bool = False):
         "previous_total",
         "challenge_active",
     ]
+    LEGACY_CLIENT_ALIASES = {
+        "Viviana_Example": "Viviana_Fuentes",
+    }
 
     def clean_token(value):
         value = (value or "").strip()
@@ -1745,10 +1748,7 @@ def merge_duplicate_clients(execute: bool = False):
         for _key, records in groups.items():
             ids = sorted({r["client_id"] for r in records if r["client_id"]})
 
-            # Never automatically merge placeholder records.
-            if "new_client" in ids:
-                ids = [i for i in ids if i != "new_client"]
-
+           
             if len(ids) <= 1:
                 continue
 
@@ -1955,6 +1955,30 @@ def merge_duplicate_clients(execute: bool = False):
 
                 cur.execute("DELETE FROM clients WHERE client_id = ?", (old_id,))
                 report["summary"]["clients_removed"] += 1
+        ...
+
+        report["summary"]["clients_removed"] += 1
+
+        # Normalize known legacy aliases before verification.
+        for old_id, new_id in LEGACY_CLIENT_ALIASES.items():
+
+            cur.execute("""
+                UPDATE attendance
+                SET client_id = ?
+                WHERE client_id = ?
+            """, (new_id, old_id))
+
+            for table in tables:
+
+                if table in ("clients", "attendance"):
+                    continue
+
+                cur.execute(
+                    f'UPDATE "{table}" '
+                    'SET client_id=? '
+                    'WHERE client_id=?',
+                    (new_id, old_id)
+                )
 
         integrity = cur.execute("PRAGMA integrity_check").fetchone()[0]
         remaining_duplicates = duplicate_groups(cur)

@@ -1744,6 +1744,11 @@ def merge_duplicate_clients(execute: bool = False):
         plans = []
         for _key, records in groups.items():
             ids = sorted({r["client_id"] for r in records if r["client_id"]})
+
+            # Never automatically merge placeholder records.
+            if "new_client" in ids:
+                ids = [i for i in ids if i != "new_client"]
+
             if len(ids) <= 1:
                 continue
 

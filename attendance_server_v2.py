@@ -1624,7 +1624,10 @@ def merge_duplicate_clients(execute: bool = False):
         "previous_total",
         "challenge_active",
     ]
+
     LEGACY_CLIENT_ALIASES = {
+        # Historical attendance alias left behind from early Viviana cleanup.
+        # Must be merged through merge_attendance() so UNIQUE(client_id, attended_date) collisions are handled safely.
         "Viviana_Example": "Viviana_Fuentes",
     }
 
@@ -1747,8 +1750,6 @@ def merge_duplicate_clients(execute: bool = False):
         plans = []
         for _key, records in groups.items():
             ids = sorted({r["client_id"] for r in records if r["client_id"]})
-
-           
             if len(ids) <= 1:
                 continue
 
@@ -1955,30 +1956,28 @@ def merge_duplicate_clients(execute: bool = False):
 
                 cur.execute("DELETE FROM clients WHERE client_id = ?", (old_id,))
                 report["summary"]["clients_removed"] += 1
-        ...
 
-        report["summary"]["clients_removed"] += 1
+        # Normalize known legacy aliases through the same collision-safe attendance merge logic.
+        # Do NOT use a direct UPDATE on attendance here; the attendance table has
+        # UNIQUE(client_id, attended_date), and direct updates can collide.
+        for alias_old_id, alias_keep_id in LEGACY_CLIENT_ALIASES.items():
 
-        # Normalize known legacy aliases before verification.
-        for old_id, new_id in LEGACY_CLIENT_ALIASES.items():
+            keep_exists = cur.execute(
+                "SELECT 1 FROM clients WHERE client_id = ?",
+                (alias_keep_id,)
+            ).fetchone()
 
-            cur.execute("""
-                UPDATE attendance
-                SET client_id = ?
-                WHERE client_id = ?
-            """, (new_id, old_id))
+            if not keep_exists:
+                report["summary"]["skipped"] += 1
+                continue
 
-            for table in tables:
+            moved, collisions = merge_attendance(cur, alias_old_id, alias_keep_id)
+            report["summary"]["attendance_moved"] += moved
+            report["summary"]["attendance_collisions"] += collisions
 
-                if table in ("clients", "attendance"):
-                    continue
-
-                cur.execute(
-                    f'UPDATE "{table}" '
-                    'SET client_id=? '
-                    'WHERE client_id=?',
-                    (new_id, old_id)
-                )
+            report["summary"]["other_rows_updated"] += update_other_client_id_tables(
+                cur, tables, alias_old_id, alias_keep_id
+            )
 
         integrity = cur.execute("PRAGMA integrity_check").fetchone()[0]
         remaining_duplicates = duplicate_groups(cur)

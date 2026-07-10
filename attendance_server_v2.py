@@ -871,66 +871,211 @@ window.onload = async function() {
 
 @app.post("/sync")
 def sync_clients(payload: dict):
-    conn = sqlite3.connect(DB_PATH)
+    """
+    Synchronize local TSHRT clients to the cloud.
+
+    Production identity rule:
+        The incoming client_id is authoritative.
+        Local TSHRT sends permanent Last_First IDs.
+
+    If another cloud row has the same display name under a different ID:
+        1. Preserve its attendance.
+        2. Preserve its strongest score values.
+        3. Remove the obsolete client row.
+        4. Upsert the incoming permanent ID.
+    """
+
+    conn = get_conn()
     cur = conn.cursor()
 
     clients = payload.get("clients", [])
-    inserted = 0
+    received = 0
+    duplicates_removed = 0
+    attendance_moved = 0
+    attendance_collisions = 0
 
-    for c in clients:
-        tests = c.get("tests", [])
+    try:
+        cur.execute("BEGIN")
 
-        baseline = 0
-        latest = 0
+        for c in clients:
+            incoming_id = str(c.get("client_id", "")).strip()
+            display_name = str(c.get("display_name", "")).strip()
 
-        valid_scores = []
-        for t in tests:
-            if isinstance(t, dict) and t.get("score") is not None:
-                valid_scores.append(t.get("score"))
+            if not incoming_id or not display_name:
+                continue
 
-        if valid_scores:
-            baseline = valid_scores[0]
-            latest = valid_scores[-1]
+            tests = c.get("tests", [])
 
-        snapshot = latest - baseline
+            baseline = 0.0
+            latest = 0.0
 
-        cur.execute("""
-            INSERT INTO clients (
-                client_id,
+            valid_scores = []
+            for test in tests:
+                if not isinstance(test, dict):
+                    continue
+
+                score = test.get("score")
+                if score is None:
+                    continue
+
+                try:
+                    valid_scores.append(float(score))
+                except (TypeError, ValueError):
+                    continue
+
+            if valid_scores:
+                baseline = valid_scores[0]
+                latest = valid_scores[-1]
+
+            snapshot = latest - baseline
+            incoming_previous = float(c.get("previous_total", 0) or 0)
+
+            old_rows = cur.execute("""
+                SELECT
+                    client_id,
+                    COALESCE(baseline_score, 0) AS baseline_score,
+                    COALESCE(snapshot_score, 0) AS snapshot_score,
+                    COALESCE(previous_total, 0) AS previous_total
+                FROM clients
+                WHERE LOWER(TRIM(COALESCE(display_name, '')))
+                      = LOWER(TRIM(?))
+                  AND client_id <> ?
+            """, (display_name, incoming_id)).fetchall()
+
+            for old_row in old_rows:
+                old_id = old_row["client_id"]
+
+                baseline = max(
+                    baseline,
+                    float(old_row["baseline_score"] or 0)
+                )
+                snapshot = max(
+                    snapshot,
+                    float(old_row["snapshot_score"] or 0)
+                )
+                incoming_previous = max(
+                    incoming_previous,
+                    float(old_row["previous_total"] or 0)
+                )
+
+                old_attendance = cur.execute("""
+                    SELECT
+                        attended_date,
+                        COALESCE(present, 1) AS present,
+                        COALESCE(finalized, 0) AS finalized
+                    FROM attendance
+                    WHERE client_id = ?
+                """, (old_id,)).fetchall()
+
+                for row in old_attendance:
+                    existing = cur.execute("""
+                        SELECT id
+                        FROM attendance
+                        WHERE client_id = ?
+                          AND attended_date = ?
+                        LIMIT 1
+                    """, (
+                        incoming_id,
+                        row["attended_date"]
+                    )).fetchone()
+
+                    if existing:
+                        cur.execute("""
+                            UPDATE attendance
+                            SET present = MAX(COALESCE(present, 1), ?),
+                                finalized = MAX(COALESCE(finalized, 0), ?)
+                            WHERE client_id = ?
+                              AND attended_date = ?
+                        """, (
+                            int(row["present"] or 1),
+                            int(row["finalized"] or 0),
+                            incoming_id,
+                            row["attended_date"]
+                        ))
+                        attendance_collisions += 1
+                    else:
+                        cur.execute("""
+                            INSERT INTO attendance (
+                                client_id,
+                                attended_date,
+                                present,
+                                finalized
+                            )
+                            VALUES (?, ?, ?, ?)
+                        """, (
+                            incoming_id,
+                            row["attended_date"],
+                            int(row["present"] or 1),
+                            int(row["finalized"] or 0)
+                        ))
+                        attendance_moved += 1
+
+                cur.execute(
+                    "DELETE FROM attendance WHERE client_id = ?",
+                    (old_id,)
+                )
+                cur.execute(
+                    "DELETE FROM clients WHERE client_id = ?",
+                    (old_id,)
+                )
+
+                duplicates_removed += 1
+
+            cur.execute("""
+                INSERT INTO clients (
+                    client_id,
+                    display_name,
+                    first_name,
+                    last_name,
+                    group_name,
+                    baseline_score,
+                    snapshot_score,
+                    previous_total
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name,
+                    group_name = excluded.group_name,
+                    baseline_score = excluded.baseline_score,
+                    snapshot_score = excluded.snapshot_score,
+                    previous_total = excluded.previous_total
+            """, (
+                incoming_id,
                 display_name,
-                first_name,
-                last_name,
-                group_name,
-                baseline_score,
-                snapshot_score,
-                previous_total
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(client_id) DO UPDATE SET
-                display_name = excluded.display_name,
-                first_name = excluded.first_name,
-                last_name = excluded.last_name,
-                group_name = excluded.group_name,
-                baseline_score = excluded.baseline_score,
-                snapshot_score = excluded.snapshot_score,
-                previous_total = excluded.previous_total
-        """, (
-            c.get("client_id"),
-            c.get("display_name"),
-            c.get("first_name"),
-            c.get("last_name"),
-            c.get("group_name"),
-            float(baseline),
-            float(snapshot),
-            float(c.get("previous_total", 0))
-        ))
+                c.get("first_name"),
+                c.get("last_name"),
+                c.get("group_name"),
+                float(baseline),
+                float(snapshot),
+                float(incoming_previous)
+            ))
 
-        inserted += 1
+            received += 1
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
-    return {"ok": True, "received": inserted}
+        return {
+            "ok": True,
+            "received": received,
+            "duplicates_removed": duplicates_removed,
+            "attendance_moved": attendance_moved,
+            "attendance_collisions": attendance_collisions
+        }
+
+    except Exception as exc:
+        conn.rollback()
+
+        return {
+            "ok": False,
+            "error": str(exc),
+            "message": "Sync failed. Transaction rolled back."
+        }
+
+    finally:
+        conn.close()
+
 
 
 # =========================================================
@@ -1594,8 +1739,8 @@ def merge_duplicate_clients(execute: bool = False):
     Preview or execute a safe merge of duplicate cloud clients.
 
     Canonical rule for TSHRT:
-        Keep First_Last when it exists because that matches local JSON files,
-        cloud_sync client_id values, reports, and the rest of the TSHRT system.
+        Keep Last_First because that matches permanent client_id values,
+        local JSON records, cloud_sync, reports, and the rest of TSHRT.
 
     Preview only:
         /admin/merge_duplicate_clients
@@ -1653,7 +1798,7 @@ def merge_duplicate_clients(execute: bool = False):
             return parts[0], ""
         return "", ""
 
-    def first_last_id_for_row(row):
+    def last_first_id_for_row(row):
         first = (row["first_name"] or "").strip() if "first_name" in row.keys() else ""
         last = (row["last_name"] or "").strip() if "last_name" in row.keys() else ""
 
@@ -1666,7 +1811,7 @@ def merge_duplicate_clients(execute: bool = False):
         last = clean_token(last)
 
         if first and last:
-            return f"{first}_{last}"
+            return f"{last}_{first}"
         if first:
             return first
         return clean_token(row["display_name"] if "display_name" in row.keys() else row["client_id"])
@@ -1709,14 +1854,14 @@ def merge_duplicate_clients(execute: bool = False):
     def choose_keep_id(cur, records):
         """
         Production rule:
-        1. Keep First_Last if it already exists.
-        2. If First_Last does not exist, keep the strongest existing row.
+        1. Keep Last_First if it already exists.
+        2. If Last_First does not exist, keep the strongest existing row.
         """
         ids = {r["client_id"] for r in records if r["client_id"]}
 
-        # Prefer First_Last derived from the actual row names.
+        # Prefer Last_First derived from the actual row names.
         for r in records:
-            candidate = first_last_id_for_row(r)
+            candidate = last_first_id_for_row(r)
             if candidate in ids:
                 return candidate
 
@@ -1761,7 +1906,7 @@ def merge_duplicate_clients(execute: bool = False):
                 "keep_id": keep_id,
                 "remove_ids": remove_ids,
                 "all_ids": ids,
-                "canonical_rule": "First_Last preferred",
+                "canonical_rule": "Last_First preferred",
             })
 
         return plans
@@ -1898,7 +2043,7 @@ def merge_duplicate_clients(execute: bool = False):
             "ok": True,
             "execute": execute,
             "mode": "EXECUTE" if execute else "PREVIEW_ONLY",
-            "canonical_rule": "First_Last preferred",
+            "canonical_rule": "Last_First preferred",
             "backup": None,
             "tables_with_client_id": tables,
             "clients_before": cur.execute("SELECT COUNT(*) FROM clients").fetchone()[0],

@@ -157,6 +157,14 @@ def get_active_challenge_dates(cur):
     return None, None
 
 
+@app.get("/challenge/active")
+def active_challenge():
+    conn=get_conn()
+    cur=conn.cursor()
+    start_date,end_date=get_active_challenge_dates(cur)
+    conn.close()
+    return {"ok":bool(start_date),"start_date":start_date,"end_date":end_date}
+
 def build_leaderboard_data(group: str):
     conn = get_conn()
     cur = conn.cursor()
@@ -1520,12 +1528,26 @@ async function wakeServer() {
     }
 }
 
+async function loadActiveChallenge(){
+    try{
+        const r=await fetch("/challenge/active");
+        const d=await r.json();
+        if(d.ok){
+            document.getElementById("start").value=d.start_date;
+            document.getElementById("end").value=d.end_date;
+        }
+    }catch(e){
+        console.warn(e);
+    }
+}
+
 window.onload = async function() {
 
     console.log("TSHRT Attendance Script Started");
 
     try {
 
+        await loadActiveChallenge();
         await loadBoard();
 
         console.log("Board Loaded Successfully");

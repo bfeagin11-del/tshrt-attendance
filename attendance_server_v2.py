@@ -242,8 +242,25 @@ def build_leaderboard_data(group: str):
             "lifetime_score": round(lifetime, 2),
         })
 
-    results.sort(key=lambda x: (-x["lifetime_score"], -x["current_score"], x["name"].lower()))
-    return results
+    # Permanent dual-ranking model. Scores are unchanged; only rank metadata is added.
+    current_order = sorted(
+        results,
+        key=lambda x: (-x["current_score"], -x["lifetime_score"], x["name"].lower())
+    )
+    lifetime_order = sorted(
+        results,
+        key=lambda x: (-x["lifetime_score"], -x["current_score"], x["name"].lower())
+    )
+
+    current_rank = {row["client_id"]: i for i, row in enumerate(current_order, start=1)}
+    lifetime_rank = {row["client_id"]: i for i, row in enumerate(lifetime_order, start=1)}
+
+    for row in results:
+        row["current_rank"] = current_rank[row["client_id"]]
+        row["lifetime_rank"] = lifetime_rank[row["client_id"]]
+
+    # A page titled Challenge Leaderboard should default to the active challenge.
+    return current_order
 
 
 # =========================================================
@@ -700,172 +717,186 @@ def leaderboard_page():
 <title>TSHRT Leaderboard</title>
 <style>
 @media print {
-    button { display:none; }
-    select { display:none; }
-
-    body {
-        background:white !important;
-        color:black !important;
-    }
-
-    table {
-        width:100%;
-        border-collapse:collapse;
-        font-size:14px;
-    }
-
-    th, td {
-        border:1px solid black;
-        padding:6px;
-        text-align:center;
-    }
+    .controls, .legend, #status { display:none !important; }
+    body { background:white !important; color:black !important; padding:0; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { border:1px solid black; padding:6px; text-align:center; }
+    #viewTitle { color:black !important; }
 }
-
 body { background:#0f172a; color:white; font-family:Arial; padding:20px; }
-h2 { margin-bottom:20px; }
-table { border-collapse:collapse; width:100%; }
+h2 { margin-bottom:10px; }
+.controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
+button, select { font-size:14px; padding:8px 12px; border-radius:6px; border:1px solid #475569; }
+button { cursor:pointer; background:#1e293b; color:white; }
+button:hover { background:#334155; }
+button.active-view { background:#fbbf24; color:#111827; font-weight:bold; border-color:#fbbf24; }
+table { border-collapse:collapse; width:100%; margin-top:8px; }
 th, td { border:1px solid #334155; padding:10px; text-align:center; }
 th { background:#1e293b; }
 .rank { font-weight:bold; }
 .gold { color:#fbbf24; font-weight:bold; }
+#status { margin:8px 0; color:#cbd5e1; min-height:20px; }
+.legend { margin-top:25px; padding:15px; border:1px solid #334155; background:#111827; border-radius:10px; font-size:14px; line-height:1.8; }
 </style>
 </head>
 <body>
 
 <h2>🔥 TSHRT Challenge Leaderboard</h2>
+<div id="challengeDates" style="color:#cbd5e1;margin-bottom:8px;"></div>
 
-Group:
-<select id="group">
-<option>ABC Class</option>
-<option>Gym</option>
-<option>Personal</option>
-</select>
-
-<button onclick="loadBoard()">Load</button>
-<button onclick="printBoard()">🖨️ Print Leaderboard</button>
-
-<table id="table"></table>
-<div style="
-    margin-top:25px;
-    padding:15px;
-    border:1px solid #334155;
-    background:#111827;
-    border-radius:10px;
-    font-size:14px;
-    line-height:1.8;
-">
-
-<h3 style="margin-top:0;">📘 Leaderboard Legend</h3>
-
-<div>🔥 <b>Elite</b> = Outstanding consistency and performance</div>
-
-<div>👍 <b>Consistent</b> = Solid steady progress</div>
-
-<div>➖ <b>Stable</b> = Maintaining current condition</div>
-
-<div>⚠️ <b>Needs Attention</b> = Metrics or attendance slipping</div>
-
-<div>🚨 <b>Risk</b> = Immediate coaching intervention recommended</div>
-
+<div class="controls">
+    <label for="group"><b>Group:</b></label>
+    <select id="group" onchange="loadBoard()">
+        <option>ABC Class</option>
+        <option>Gym</option>
+        <option>Personal</option>
+    </select>
+    <button id="btnCurrent" class="active-view" onclick="setView('current')">Current Challenge</button>
+    <button id="btnLifetime" onclick="setView('lifetime')">Lifetime / Overall</button>
+    <button id="btnCombined" onclick="setView('combined')">Combined Standings</button>
+    <button onclick="window.print()">🖨️ Print Current View</button>
 </div>
+
+<div id="status">Loading leaderboard...</div>
+<div id="viewTitle" style="margin:14px 0 8px 0;font-weight:bold;color:#fbbf24;"></div>
+<table id="table"></table>
+
+<div class="legend">
+<h3 style="margin-top:0;">📘 Leaderboard Legend</h3>
+<div>🔥 <b>Elite</b> = Outstanding consistency and performance</div>
+<div>👍 <b>Consistent</b> = Solid steady progress</div>
+<div>➖ <b>Stable</b> = Maintaining current condition</div>
+<div>⚠️ <b>Needs Attention</b> = Metrics or attendance slipping</div>
+<div>🚨 <b>Risk</b> = Immediate coaching intervention recommended</div>
+</div>
+
 <script>
-function printBoard(){
-    window.print();
-}
+let leaderboardRows = [];
+let activeView = "current";
+
 function formatDelta(v) {
-
-    v = Number(v);
-
-    if (v >= 5) {
-        return "🔥 Excellent (+" + v + ")";
-    }
-
-    if (v >= 1) {
-        return "👍 Improving (+" + v + ")";
-    }
-
-    if (v <= -5) {
-        return "⚠️ Needs Attention (" + v + ")";
-    }
-
-    if (v < 0) {
-        return "➖ Stable (" + v + ")";
-    }
-
+    v = Number(v || 0);
+    if (v >= 5) return "🔥 Excellent (+" + v + ")";
+    if (v >= 1) return "👍 Improving (+" + v + ")";
+    if (v <= -5) return "⚠️ Needs Attention (" + v + ")";
+    if (v < 0) return "➖ Stable (" + v + ")";
     return "➖ Stable (0)";
 }
 
-
 function formatAttendance(v) {
-
-    v = Number(v);
-
-    if (v >= 8) {
-        return v + " 🔥 Elite";
-    }
-
-    if (v >= 6) {
-        return v + " 👍 Consistent";
-    }
-
-    if (v >= 4) {
-        return v + " ➖ Stable";
-    }
-
-    if (v >= 2) {
-        return v + " ⚠️ Slipping";
-    }
-
+    v = Number(v || 0);
+    if (v >= 8) return v + " 🔥 Elite";
+    if (v >= 6) return v + " 👍 Consistent";
+    if (v >= 4) return v + " ➖ Stable";
+    if (v >= 2) return v + " ⚠️ Slipping";
     return v + " 🚨 Risk";
 }
-async function loadBoard(){
 
-    let g = document.getElementById("group").value;
+function setView(view) {
+    activeView = view;
+    document.getElementById("btnCurrent").classList.toggle("active-view", view === "current");
+    document.getElementById("btnLifetime").classList.toggle("active-view", view === "lifetime");
+    document.getElementById("btnCombined").classList.toggle("active-view", view === "combined");
+    renderBoard();
+}
 
-    let res = await fetch("/leaderboard/data?group=" + encodeURIComponent(g));
+function renderBoard() {
+    const table = document.getElementById("table");
+    const status = document.getElementById("status");
+    const titleBox = document.getElementById("viewTitle");
 
-    let data = await res.json();
+    if (!Array.isArray(leaderboardRows) || leaderboardRows.length === 0) {
+        table.innerHTML = "";
+        titleBox.textContent = "";
+        status.textContent = "No leaderboard records were returned for this group.";
+        return;
+    }
 
-    console.log("LEADERBOARD DATA:", data);
+    let rows = leaderboardRows.slice();
+    let html = "";
+    let title = "";
 
-    let html = "<tr><th>#</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
+    if (activeView === "lifetime") {
+        rows.sort((a,b) => (Number(b.lifetime_score) - Number(a.lifetime_score)) || (Number(b.current_score) - Number(a.current_score)) || String(a.name).localeCompare(String(b.name)));
+        title = "LIFETIME / OVERALL STANDINGS";
+        html = "<tr><th>Overall Rank</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th><th>Challenge Rank</th></tr>";
+    } else if (activeView === "combined") {
+        rows.sort((a,b) => Number(a.current_rank) - Number(b.current_rank));
+        title = "COMBINED CHALLENGE + LIFETIME STANDINGS";
+        html = "<tr><th>Challenge Rank</th><th>Overall Rank</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th></tr>";
+    } else {
+        rows.sort((a,b) => (Number(b.current_score) - Number(a.current_score)) || (Number(b.lifetime_score) - Number(a.lifetime_score)) || String(a.name).localeCompare(String(b.name)));
+        title = "CURRENT CHALLENGE STANDINGS";
+        html = "<tr><th>Challenge Rank</th><th>Name</th><th>Att</th><th>Base</th><th>Δ</th><th>Current</th><th>Lifetime</th><th>Overall Rank</th></tr>";
+    }
 
-    let i = 1;
-
-    for (let r of (data.rows || [])) {
-
-        let cls = (i === 1) ? "gold" : "";
+    for (const r of rows) {
+        const currentRank = Number(r.current_rank || 0);
+        const lifetimeRank = Number(r.lifetime_rank || 0);
+        const primaryRank = activeView === "lifetime" ? lifetimeRank : currentRank;
+        const cls = primaryRank === 1 ? "gold" : "";
 
         html += "<tr>";
-        html += "<td class='rank " + cls + "'>" + i + "</td>";
-        html += "<td>" + r.name + "</td>";
+        if (activeView === "combined") {
+            html += "<td class='rank " + (currentRank === 1 ? "gold" : "") + "'>" + currentRank + "</td>";
+            html += "<td class='rank " + (lifetimeRank === 1 ? "gold" : "") + "'>" + lifetimeRank + "</td>";
+            html += "<td>" + r.name + "</td>";
+        } else {
+            html += "<td class='rank " + cls + "'>" + primaryRank + "</td>";
+            html += "<td>" + r.name + "</td>";
+        }
+
         html += "<td>" + formatAttendance(r.attendance) + "</td>";
         html += "<td>" + r.baseline + "</td>";
         html += "<td>" + formatDelta(r.snapshot) + "</td>";
         html += "<td>" + r.current_score + "</td>";
         html += "<td>" + r.lifetime_score + "</td>";
+        if (activeView === "lifetime") html += "<td class='rank'>" + currentRank + "</td>";
+        if (activeView === "current") html += "<td class='rank'>" + lifetimeRank + "</td>";
         html += "</tr>";
-
-        i++;
     }
 
-    document.getElementById("table").innerHTML = html;
+    titleBox.textContent = title;
+    table.innerHTML = html;
+    status.textContent = rows.length + " clients loaded.";
 }
 
-window.onload = async function() {
-
+async function loadChallengeDates() {
     try {
-
-        await loadBoard();
-
-        console.log("Leaderboard Loaded");
-
-    } catch(err) {
-
-        console.error("Leaderboard Error:", err);
-
+        const res = await fetch("/challenge/active");
+        const data = await res.json();
+        if (data && data.ok && data.start_date && data.end_date) {
+            document.getElementById("challengeDates").textContent = "Active Challenge: " + data.start_date + " through " + data.end_date;
+        }
+    } catch (err) {
+        console.error("Challenge date load error:", err);
     }
-};
+}
+
+async function loadBoard() {
+    const status = document.getElementById("status");
+    status.textContent = "Loading leaderboard...";
+    try {
+        const g = document.getElementById("group").value;
+        const res = await fetch("/leaderboard/data?group=" + encodeURIComponent(g), {cache:"no-store"});
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (!data || data.ok !== true) throw new Error("Leaderboard API returned an error");
+        leaderboardRows = Array.isArray(data.rows) ? data.rows : [];
+        renderBoard();
+    } catch (err) {
+        leaderboardRows = [];
+        document.getElementById("table").innerHTML = "";
+        document.getElementById("viewTitle").textContent = "";
+        status.textContent = "Leaderboard failed to load: " + err.message;
+        console.error("Leaderboard Error:", err);
+    }
+}
+
+window.addEventListener("load", async () => {
+    await loadChallengeDates();
+    await loadBoard();
+});
 </script>
 
 </body>

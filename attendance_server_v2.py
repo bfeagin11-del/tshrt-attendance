@@ -2527,7 +2527,7 @@ def phone_attendance():
     conn = get_conn()
     cur = conn.cursor()
 
-        clients = cur.execute("""
+    clients = cur.execute("""
         SELECT client_id, display_name, first_name, last_name
         FROM clients
         WHERE LOWER(COALESCE(group_name, '')) = 'abc class'

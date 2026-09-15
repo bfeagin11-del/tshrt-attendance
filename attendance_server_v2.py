@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
@@ -2221,6 +2221,371 @@ def merge_duplicate_clients(execute: bool = False):
 # =========================================================
 # STARTUP
 # =========================================================
+# =========================================================
+# PHONE ATTENDANCE — PHASE 1
+# =========================================================
+
+@app.get("/phone-attendance", response_class=HTMLResponse)
+def phone_attendance():
+    """
+    Mobile-friendly instructor attendance page.
+    Uses the existing TSHRT clients and attendance system.
+    """
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    clients = cur.execute("""
+        SELECT client_id, display_name, first_name, last_name
+        FROM clients
+        WHERE LOWER(COALESCE(group_name, '')) = 'abc class'
+        ORDER BY last_name, first_name, display_name
+    """).fetchall()
+
+    conn.close()
+
+    student_buttons = ""
+
+    for row in clients:
+        client_id = row["client_id"]
+
+        display_name = (row["display_name"] or "").strip()
+
+        if not display_name:
+            first = (row["first_name"] or "").strip()
+            last = (row["last_name"] or "").strip()
+            display_name = f"{first} {last}".strip()
+
+        student_buttons += f"""
+        <label class="student">
+            <input type="checkbox"
+                   name="client_ids"
+                   value="{client_id}">
+            <span>{display_name}</span>
+        </label>
+        """
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>TSHRT Attendance</title>
+
+    <style>
+        * {{
+            box-sizing: border-box;
+        }}
+
+        body {{
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+        }}
+
+        .header {{
+            background: #000;
+            border-bottom: 4px solid #d4af37;
+            padding: 22px 15px;
+            text-align: center;
+        }}
+
+        .header h1 {{
+            color: #d4af37;
+            margin: 0;
+            font-size: 28px;
+        }}
+
+        .header p {{
+            margin: 6px 0 0;
+            color: #ddd;
+        }}
+
+        .container {{
+            max-width: 650px;
+            margin: auto;
+            padding: 15px;
+        }}
+
+        .date {{
+            background: #222;
+            border: 1px solid #444;
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-size: 18px;
+        }}
+
+        .student {{
+            display: flex;
+            align-items: center;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            margin-bottom: 9px;
+            padding: 15px;
+            font-size: 19px;
+            cursor: pointer;
+        }}
+
+        .student:has(input:checked) {{
+            background: #3a3215;
+            border: 2px solid #d4af37;
+        }}
+
+        .student input {{
+            width: 24px;
+            height: 24px;
+            margin-right: 14px;
+            accent-color: #d4af37;
+        }}
+
+        .save {{
+            position: sticky;
+            bottom: 10px;
+            width: 100%;
+            padding: 18px;
+            margin-top: 15px;
+            background: #d4af37;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+        }}
+
+        .count {{
+            text-align: center;
+            color: #bbb;
+            margin-bottom: 12px;
+        }}
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h1>TSHRT</h1>
+    <p>ABC Class Attendance</p>
+</div>
+
+<div class="container">
+
+    <div class="date">
+        Attendance Date: <strong>{today}</strong>
+    </div>
+
+    <div class="count">
+        Select everyone present.
+    </div>
+
+    <form method="post" action="/phone-attendance/save">
+
+        <input type="hidden"
+               name="attended_date"
+               value="{today}">
+
+        {student_buttons}
+
+        <button class="save" type="submit">
+            SAVE ATTENDANCE
+        </button>
+
+    </form>
+
+</div>
+
+</body>
+</html>
+"""
 
 init_db()
 upgrade_db()
+# =========================================================
+# PHONE ATTENDANCE — SAVE
+# =========================================================
+
+@app.post("/phone-attendance/save", response_class=HTMLResponse)
+def save_phone_attendance(
+    attended_date: str = Form(...),
+    client_ids: Optional[List[str]] = Form(None)
+):
+    """
+    Saves instructor-selected attendance using the existing
+    TSHRT attendance table.
+
+    Safe behavior:
+    - Only selected students are marked present.
+    - Existing attendance for the same student/date is updated.
+    - No duplicate attendance record is intentionally created.
+    - Existing finalized status is preserved.
+    """
+
+    selected_ids = client_ids or []
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    saved = 0
+
+    try:
+        for client_id in selected_ids:
+
+            client = cur.execute("""
+                SELECT client_id
+                FROM clients
+                WHERE client_id = ?
+                LIMIT 1
+            """, (client_id,)).fetchone()
+
+            if not client:
+                continue
+
+            existing = cur.execute("""
+                SELECT id
+                FROM attendance
+                WHERE client_id = ?
+                  AND attended_date = ?
+                LIMIT 1
+            """, (client_id, attended_date)).fetchone()
+
+            if existing:
+                cur.execute("""
+                    UPDATE attendance
+                    SET present = 1
+                    WHERE id = ?
+                """, (existing["id"],))
+            else:
+                cur.execute("""
+                    INSERT INTO attendance
+                        (client_id, attended_date, present, finalized)
+                    VALUES (?, ?, 1, 0)
+                """, (
+                    client_id,
+                    attended_date
+                ))
+
+            saved += 1
+
+        conn.commit()
+
+    except Exception as exc:
+        conn.rollback()
+        conn.close()
+
+        return f"""
+        <html>
+        <head>
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
+        </head>
+
+        <body style="
+            background:#111;
+            color:white;
+            font-family:Arial;
+            text-align:center;
+            padding:40px;
+        ">
+
+            <h1 style="color:#d4af37;">
+                TSHRT ATTENDANCE
+            </h1>
+
+            <h2>Attendance Was NOT Saved</h2>
+
+            <p>{str(exc)}</p>
+
+            <a href="/phone-attendance"
+               style="color:#d4af37;font-size:20px;">
+                Return to Attendance
+            </a>
+
+        </body>
+        </html>
+        """
+
+    conn.close()
+
+    return f"""
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Attendance Saved</title>
+</head>
+
+<body style="
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial;
+    text-align:center;
+">
+
+    <div style="
+        background:#000;
+        border-bottom:4px solid #d4af37;
+        padding:25px;
+    ">
+
+        <h1 style="
+            color:#d4af37;
+            margin:0;
+        ">
+            TSHRT
+        </h1>
+
+        <p>ABC Class Attendance</p>
+
+    </div>
+
+    <div style="padding:45px 20px;">
+
+        <div style="
+            font-size:70px;
+            margin-bottom:15px;
+        ">
+            ✓
+        </div>
+
+        <h2>ATTENDANCE SAVED</h2>
+
+        <p style="font-size:20px;">
+            <strong>{saved}</strong> students marked present.
+        </p>
+
+        <p>
+            Date: <strong>{attended_date}</strong>
+        </p>
+
+        <a href="/phone-attendance"
+           style="
+               display:inline-block;
+               margin-top:25px;
+               padding:16px 25px;
+               background:#d4af37;
+               color:#000;
+               text-decoration:none;
+               border-radius:8px;
+               font-weight:bold;
+               font-size:18px;
+           ">
+            RETURN TO ATTENDANCE
+        </a>
+
+    </div>
+
+</body>
+</html>
+"""

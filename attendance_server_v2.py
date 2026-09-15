@@ -275,6 +275,24 @@ def get_active_class_schedule(check_date=None):
         "reason": "NOT_SCHEDULED",
         "date": date_text
     }
+# =========================================================
+# ATTENDANCE SCHEDULE DIAGNOSTIC
+# =========================================================
+
+@app.get("/debug/class-day")
+def debug_class_day(date: Optional[str] = None):
+    """
+    Read-only diagnostic for the TSHRT class-day engine.
+    Does not create, modify, or delete attendance.
+    """
+
+    result = get_active_class_schedule(date)
+
+    return {
+        "ok": True,
+        "requested_date": date,
+        "schedule_decision": result
+    }
 def parse_name(display_name: str):
     display_name = (display_name or "").strip()
     if not display_name:

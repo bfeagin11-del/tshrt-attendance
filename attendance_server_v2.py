@@ -2589,3 +2589,47 @@ def save_phone_attendance(
 </body>
 </html>
 """
+# =========================================================
+# TEMPORARY CLEANUP — REMOVE AFTER USE
+# =========================================================
+
+@app.get("/admin/remove_bennie_test_attendance")
+def remove_bennie_test_attendance():
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    before = cur.execute("""
+        SELECT COUNT(*)
+        FROM attendance
+        WHERE client_id = ?
+          AND attended_date = ?
+    """, ("Feagin_Bennie", "2026-09-15")).fetchone()[0]
+
+    cur.execute("""
+        DELETE FROM attendance
+        WHERE client_id = ?
+          AND attended_date = ?
+    """, ("Feagin_Bennie", "2026-09-15"))
+
+    deleted = cur.rowcount
+
+    conn.commit()
+
+    after = cur.execute("""
+        SELECT COUNT(*)
+        FROM attendance
+        WHERE client_id = ?
+          AND attended_date = ?
+    """, ("Feagin_Bennie", "2026-09-15")).fetchone()[0]
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "client_id": "Feagin_Bennie",
+        "date": "2026-09-15",
+        "records_before": before,
+        "records_deleted": deleted,
+        "records_after": after
+    }

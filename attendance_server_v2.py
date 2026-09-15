@@ -56,7 +56,39 @@ def init_db():
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    # ---------------------------------------------------------
+    # CHALLENGE ATTENDANCE SCHEDULE
+    # ---------------------------------------------------------
+    # Comma-separated Python weekday numbers:
+    # Monday=0, Tuesday=1, Wednesday=2, Thursday=3,
+    # Friday=4, Saturday=5, Sunday=6
+    #
+    # Existing challenges default to Monday/Wednesday.
+    # Future challenges can use any combination.
 
+    try:
+        cur.execute("""
+            ALTER TABLE challenges
+            ADD COLUMN class_days TEXT DEFAULT '0,2'
+        """)
+    except Exception:
+        pass
+
+    try:
+        cur.execute("""
+            ALTER TABLE challenges
+            ADD COLUMN special_class_dates TEXT DEFAULT ''
+        """)
+    except Exception:
+        pass
+
+    try:
+        cur.execute("""
+            ALTER TABLE challenges
+            ADD COLUMN no_class_dates TEXT DEFAULT ''
+        """)
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -120,7 +152,129 @@ class DatePayload(BaseModel):
 # =========================================================
 # HELPERS
 # =========================================================
+def get_active_class_schedule(check_date=None):
+    """
+    Determine whether a date is a valid attendance/class day
+    for the currently active TSHRT challenge.
 
+    Priority:
+      1. Date must be inside the active challenge.
+      2. no_class_dates always blocks attendance.
+      3. special_class_dates always allows attendance.
+      4. Otherwise class_days determines attendance.
+
+    Returns a dictionary describing the decision.
+    """
+
+    if check_date is None:
+        check_dt = datetime.now()
+    elif isinstance(check_date, datetime):
+        check_dt = check_date
+    else:
+        try:
+            check_dt = datetime.strptime(str(check_date), "%Y-%m-%d")
+        except ValueError:
+            return {
+                "ok": False,
+                "is_class_day": False,
+                "reason": "INVALID_DATE",
+                "date": str(check_date)
+            }
+
+    date_text = check_dt.strftime("%Y-%m-%d")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    challenge = cur.execute("""
+        SELECT
+            start_date,
+            end_date,
+            active,
+            COALESCE(class_days, '0,2') AS class_days,
+            COALESCE(special_class_dates, '') AS special_class_dates,
+            COALESCE(no_class_dates, '') AS no_class_dates
+        FROM challenges
+        WHERE active = 1
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
+
+    conn.close()
+
+    if not challenge:
+        return {
+            "ok": True,
+            "is_class_day": False,
+            "reason": "NO_ACTIVE_CHALLENGE",
+            "date": date_text
+        }
+
+    start_date = str(challenge["start_date"] or "").strip()
+    end_date = str(challenge["end_date"] or "").strip()
+
+    if date_text < start_date or date_text > end_date:
+        return {
+            "ok": True,
+            "is_class_day": False,
+            "reason": "OUTSIDE_ACTIVE_CHALLENGE",
+            "date": date_text,
+            "start_date": start_date,
+            "end_date": end_date
+        }
+
+    class_days = {
+        x.strip()
+        for x in str(challenge["class_days"] or "0,2").split(",")
+        if x.strip()
+    }
+
+    special_dates = {
+        x.strip()
+        for x in str(challenge["special_class_dates"] or "").split(",")
+        if x.strip()
+    }
+
+    no_class_dates = {
+        x.strip()
+        for x in str(challenge["no_class_dates"] or "").split(",")
+        if x.strip()
+    }
+
+    # Explicit cancellation wins over everything.
+    if date_text in no_class_dates:
+        return {
+            "ok": True,
+            "is_class_day": False,
+            "reason": "NO_CLASS_DATE",
+            "date": date_text
+        }
+
+    # Explicit special/make-up class.
+    if date_text in special_dates:
+        return {
+            "ok": True,
+            "is_class_day": True,
+            "reason": "SPECIAL_CLASS_DATE",
+            "date": date_text
+        }
+
+    weekday = str(check_dt.weekday())
+
+    if weekday in class_days:
+        return {
+            "ok": True,
+            "is_class_day": True,
+            "reason": "SCHEDULED_CLASS_DAY",
+            "date": date_text
+        }
+
+    return {
+        "ok": True,
+        "is_class_day": False,
+        "reason": "NOT_SCHEDULED",
+        "date": date_text
+    }
 def parse_name(display_name: str):
     display_name = (display_name or "").strip()
     if not display_name:
@@ -2232,10 +2386,148 @@ def phone_attendance():
     Uses the existing TSHRT clients and attendance system.
     """
 
+    # ---------------------------------------------------------
+    # CLASS-DAY SAFETY CHECK
+    # ---------------------------------------------------------
+
+    schedule = get_active_class_schedule()
+
+    today = schedule.get(
+        "date",
+        datetime.now().strftime("%Y-%m-%d")
+    )
+
+    if not schedule.get("is_class_day", False):
+
+        reason = schedule.get("reason", "NOT_SCHEDULED")
+
+        messages = {
+            "NO_ACTIVE_CHALLENGE":
+                "There is currently no active TSHRT challenge.",
+
+            "OUTSIDE_ACTIVE_CHALLENGE":
+                "Today is outside the active challenge dates.",
+
+            "NO_CLASS_DATE":
+                "Today has been designated as a NO-CLASS day.",
+
+            "NOT_SCHEDULED":
+                "Today is not a scheduled ABC Class day.",
+
+            "INVALID_DATE":
+                "The attendance date is invalid."
+        }
+
+        message = messages.get(
+            reason,
+            "Attendance is not available today."
+        )
+
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>TSHRT Attendance</title>
+
+    <style>
+        body {{
+            margin:0;
+            background:#111;
+            color:white;
+            font-family:Arial, sans-serif;
+            text-align:center;
+        }}
+
+        .header {{
+            background:#000;
+            border-bottom:4px solid #d4af37;
+            padding:25px 15px;
+        }}
+
+        .header h1 {{
+            margin:0;
+            color:#d4af37;
+            font-size:30px;
+        }}
+
+        .container {{
+            max-width:600px;
+            margin:auto;
+            padding:50px 20px;
+        }}
+
+        .status {{
+            border:2px solid #d4af37;
+            border-radius:12px;
+            padding:30px 20px;
+            background:#1c1c1c;
+        }}
+
+        .status h2 {{
+            color:#d4af37;
+            font-size:27px;
+            margin-top:0;
+        }}
+
+        .date {{
+            font-size:21px;
+            margin:20px 0;
+        }}
+
+        .message {{
+            font-size:18px;
+            line-height:1.5;
+            color:#ddd;
+        }}
+
+        .locked {{
+            margin-top:25px;
+            font-weight:bold;
+            color:#aaa;
+        }}
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h1>TSHRT</h1>
+    <p>ABC Class Attendance</p>
+</div>
+
+<div class="container">
+
+    <div class="status">
+
+        <h2>NO CLASS TODAY</h2>
+
+        <div class="date">
+            {today}
+        </div>
+
+        <div class="message">
+            {message}
+        </div>
+
+        <div class="locked">
+            Attendance entry is disabled.
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
+"""
+
     conn = get_conn()
     cur = conn.cursor()
 
-    clients = cur.execute("""
+        clients = cur.execute("""
         SELECT client_id, display_name, first_name, last_name
         FROM clients
         WHERE LOWER(COALESCE(group_name, '')) = 'abc class'
@@ -2264,8 +2556,6 @@ def phone_attendance():
             <span>{display_name}</span>
         </label>
         """
-
-    today = datetime.now().strftime("%Y-%m-%d")
 
     return f"""
 <!DOCTYPE html>

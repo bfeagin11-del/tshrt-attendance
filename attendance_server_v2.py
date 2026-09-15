@@ -2717,6 +2717,137 @@ def save_phone_attendance(
     - No duplicate attendance record is intentionally created.
     - Existing finalized status is preserved.
     """
+    # ---------------------------------------------------------
+    # SERVER-SIDE CLASS-DAY SAFETY LOCK
+    # ---------------------------------------------------------
+    # Never trust the page alone. Before writing attendance,
+    # independently verify that the submitted date is a valid
+    # class day for the active challenge.
+
+    schedule = get_active_class_schedule(attended_date)
+
+    if not schedule.get("is_class_day", False):
+
+        reason = schedule.get("reason", "NOT_SCHEDULED")
+
+        messages = {
+            "NO_ACTIVE_CHALLENGE":
+                "There is currently no active TSHRT challenge.",
+
+            "OUTSIDE_ACTIVE_CHALLENGE":
+                "This date is outside the active challenge dates.",
+
+            "NO_CLASS_DATE":
+                "This date has been designated as a NO-CLASS day.",
+
+            "NOT_SCHEDULED":
+                "This date is not a scheduled ABC Class day.",
+
+            "INVALID_DATE":
+                "The submitted attendance date is invalid."
+        }
+
+        message = messages.get(
+            reason,
+            "Attendance is not allowed for this date."
+        )
+
+        return f"""
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Attendance Blocked</title>
+</head>
+
+<body style="
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial, sans-serif;
+    text-align:center;
+">
+
+    <div style="
+        background:#000;
+        border-bottom:4px solid #d4af37;
+        padding:25px;
+    ">
+
+        <h1 style="
+            color:#d4af37;
+            margin:0;
+        ">
+            TSHRT
+        </h1>
+
+        <p>ABC Class Attendance</p>
+
+    </div>
+
+    <div style="
+        max-width:600px;
+        margin:auto;
+        padding:50px 20px;
+    ">
+
+        <div style="
+            border:2px solid #d4af37;
+            border-radius:12px;
+            padding:30px 20px;
+            background:#1c1c1c;
+        ">
+
+            <h2 style="
+                color:#d4af37;
+                margin-top:0;
+            ">
+                ATTENDANCE BLOCKED
+            </h2>
+
+            <p style="font-size:20px;">
+                {attended_date}
+            </p>
+
+            <p style="
+                font-size:18px;
+                line-height:1.5;
+            ">
+                {message}
+            </p>
+
+            <p style="
+                margin-top:25px;
+                color:#aaa;
+                font-weight:bold;
+            ">
+                No attendance records were changed.
+            </p>
+
+            <a href="/phone-attendance"
+               style="
+                   display:inline-block;
+                   margin-top:20px;
+                   padding:14px 22px;
+                   background:#d4af37;
+                   color:#000;
+                   text-decoration:none;
+                   border-radius:8px;
+                   font-weight:bold;
+               ">
+                RETURN TO ATTENDANCE
+            </a>
+
+        </div>
+
+    </div>
+
+</body>
+</html>
+"""
 
     selected_ids = client_ids or []
 

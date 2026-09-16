@@ -293,6 +293,276 @@ def debug_class_day(date: Optional[str] = None):
         "requested_date": date,
         "schedule_decision": result
     }
+# =========================================================
+# ATTENDANCE SCHEDULE MANAGER
+# =========================================================
+
+@app.get("/attendance-schedule", response_class=HTMLResponse)
+def attendance_schedule_manager():
+    """
+    Instructor management page for the active challenge
+    attendance schedule.
+
+    This page changes attendance authorization rules only.
+    It does NOT modify historical attendance records.
+    """
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    challenge = cur.execute("""
+        SELECT
+            id,
+            start_date,
+            end_date,
+            COALESCE(class_days, '0,2') AS class_days,
+            COALESCE(special_class_dates, '') AS special_class_dates,
+            COALESCE(no_class_dates, '') AS no_class_dates
+        FROM challenges
+        WHERE active = 1
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
+
+    conn.close()
+
+    if not challenge:
+        return """
+        <html>
+        <head>
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
+            <title>TSHRT Attendance Schedule</title>
+        </head>
+
+        <body style="
+            margin:0;
+            background:#111;
+            color:white;
+            font-family:Arial, sans-serif;
+            text-align:center;
+        ">
+            <div style="padding:50px 20px;">
+                <h1 style="color:#d4af37;">TSHRT</h1>
+                <h2>Attendance Schedule</h2>
+                <p>There is currently no active challenge.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+    selected_days = {
+        x.strip()
+        for x in str(challenge["class_days"] or "0,2").split(",")
+        if x.strip()
+    }
+
+    weekdays = [
+        ("0", "Monday"),
+        ("1", "Tuesday"),
+        ("2", "Wednesday"),
+        ("3", "Thursday"),
+        ("4", "Friday"),
+        ("5", "Saturday"),
+        ("6", "Sunday"),
+    ]
+
+    day_controls = ""
+
+    for day_number, day_name in weekdays:
+
+        checked = "checked" if day_number in selected_days else ""
+
+        day_controls += f"""
+        <label class="day-option">
+            <input type="checkbox"
+                   name="class_days"
+                   value="{day_number}"
+                   {checked}>
+            <span>{day_name}</span>
+        </label>
+        """
+
+    return f"""
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>TSHRT Attendance Schedule</title>
+
+    <style>
+
+        body {{
+            margin:0;
+            background:#111;
+            color:white;
+            font-family:Arial, sans-serif;
+        }}
+
+        .header {{
+            background:#000;
+            border-bottom:4px solid #d4af37;
+            padding:24px 15px;
+            text-align:center;
+        }}
+
+        .header h1 {{
+            color:#d4af37;
+            margin:0;
+            font-size:30px;
+        }}
+
+        .container {{
+            max-width:650px;
+            margin:auto;
+            padding:25px 18px 50px 18px;
+        }}
+
+        .card {{
+            background:#1b1b1b;
+            border:1px solid #444;
+            border-radius:12px;
+            padding:20px;
+            margin-bottom:20px;
+        }}
+
+        .card h2 {{
+            color:#d4af37;
+            margin-top:0;
+        }}
+
+        .challenge-dates {{
+            line-height:1.7;
+            font-size:17px;
+        }}
+
+        .day-option {{
+            display:flex;
+            align-items:center;
+            gap:14px;
+            background:#262626;
+            padding:15px;
+            margin:8px 0;
+            border-radius:8px;
+            font-size:18px;
+        }}
+
+        .day-option input {{
+            width:22px;
+            height:22px;
+        }}
+
+        textarea {{
+            width:100%;
+            box-sizing:border-box;
+            min-height:90px;
+            background:#111;
+            color:white;
+            border:1px solid #666;
+            border-radius:8px;
+            padding:12px;
+            font-size:16px;
+        }}
+
+        .hint {{
+            color:#aaa;
+            font-size:14px;
+            line-height:1.4;
+        }}
+
+        .save {{
+            width:100%;
+            background:#d4af37;
+            color:#000;
+            border:none;
+            border-radius:9px;
+            padding:17px;
+            font-size:19px;
+            font-weight:bold;
+            cursor:pointer;
+        }}
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="header">
+    <h1>TSHRT</h1>
+    <p>Attendance Schedule Manager</p>
+</div>
+
+<div class="container">
+
+    <div class="card">
+
+        <h2>ACTIVE CHALLENGE</h2>
+
+        <div class="challenge-dates">
+            <strong>Start:</strong> {challenge["start_date"]}<br>
+            <strong>End:</strong> {challenge["end_date"]}
+        </div>
+
+    </div>
+
+    <form method="post"
+          action="/attendance-schedule/save">
+
+        <div class="card">
+
+            <h2>REGULAR CLASS DAYS</h2>
+
+            {day_controls}
+
+        </div>
+
+        <div class="card">
+
+            <h2>SPECIAL CLASS DATES</h2>
+
+            <p class="hint">
+                Optional makeup or extra class dates.<br>
+                Use YYYY-MM-DD. Separate multiple dates with commas.
+            </p>
+
+            <textarea
+                name="special_class_dates"
+                placeholder="2026-09-19, 2026-10-03">{challenge["special_class_dates"]}</textarea>
+
+        </div>
+
+        <div class="card">
+
+            <h2>NO-CLASS DATES</h2>
+
+            <p class="hint">
+                Holidays, cancellations, or other dates when a
+                normally scheduled class will not meet.<br>
+                Use YYYY-MM-DD. Separate multiple dates with commas.
+            </p>
+
+            <textarea
+                name="no_class_dates"
+                placeholder="2026-11-25">{challenge["no_class_dates"]}</textarea>
+
+        </div>
+
+        <button class="save" type="submit">
+            SAVE ATTENDANCE SCHEDULE
+        </button>
+
+    </form>
+
+</div>
+
+</body>
+</html>
+"""
 def parse_name(display_name: str):
     display_name = (display_name or "").strip()
     if not display_name:

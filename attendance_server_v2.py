@@ -89,8 +89,14 @@ def init_db():
         """)
     except Exception:
         pass
+
     conn.commit()
     conn.close()
+
+
+# =========================================================
+# MODELS
+# =========================================================
 
 
 def upgrade_db():
@@ -126,7 +132,22 @@ def upgrade_db():
         cur.execute("ALTER TABLE clients ADD COLUMN challenge_active INTEGER DEFAULT 0")
     except Exception:
         pass
+    # =====================================================
+    # STUDENT ATTENDANCE CHECK-IN SESSION
+    # =====================================================
+    # Instructor-controlled gate for student QR check-in.
+    # This does NOT replace the existing attendance table.
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance_checkin_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_date TEXT NOT NULL UNIQUE,
+            is_open INTEGER NOT NULL DEFAULT 0,
+            opened_at TEXT,
+            closed_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 

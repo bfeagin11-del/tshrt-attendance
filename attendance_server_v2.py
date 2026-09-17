@@ -563,6 +563,492 @@ def attendance_schedule_manager():
 </body>
 </html>
 """
+# =========================================================
+# ATTENDANCE SCHEDULE MANAGER — SAVE
+# =========================================================
+
+@app.post("/attendance-schedule/save", response_class=HTMLResponse)
+def save_attendance_schedule(
+    class_days: Optional[List[str]] = Form(None),
+    special_class_dates: str = Form(""),
+    no_class_dates: str = Form("")
+):
+    """
+    Validate and save attendance schedule settings for the
+    currently active challenge.
+
+    This changes attendance authorization rules only.
+    Historical attendance records are never modified.
+    """
+
+    # -----------------------------------------------------
+    # VALIDATE REGULAR CLASS DAYS
+    # -----------------------------------------------------
+
+    selected_days = class_days or []
+
+    valid_day_values = {"0", "1", "2", "3", "4", "5", "6"}
+
+    selected_days = [
+        str(day).strip()
+        for day in selected_days
+        if str(day).strip() in valid_day_values
+    ]
+
+    # Remove duplicates and keep weekday order.
+    selected_days = sorted(
+        set(selected_days),
+        key=lambda x: int(x)
+    )
+
+    if not selected_days:
+        return HTMLResponse(
+            content="""
+            <html>
+            <head>
+                <meta name="viewport"
+                      content="width=device-width, initial-scale=1.0">
+                <title>Schedule Error</title>
+            </head>
+
+            <body style="
+                margin:0;
+                background:#111;
+                color:white;
+                font-family:Arial, sans-serif;
+                text-align:center;
+            ">
+
+                <div style="padding:50px 20px;">
+
+                    <h1 style="color:#d4af37;">
+                        TSHRT
+                    </h1>
+
+                    <h2>Schedule Not Saved</h2>
+
+                    <p>
+                        Select at least one regular class day.
+                    </p>
+
+                    <a href="/attendance-schedule"
+                       style="
+                           display:inline-block;
+                           margin-top:20px;
+                           padding:14px 22px;
+                           background:#d4af37;
+                           color:#000;
+                           text-decoration:none;
+                           border-radius:8px;
+                           font-weight:bold;
+                       ">
+                        RETURN TO SCHEDULE
+                    </a>
+
+                </div>
+
+            </body>
+            </html>
+            """,
+            status_code=400
+        )
+
+    # -----------------------------------------------------
+    # DATE LIST VALIDATOR
+    # -----------------------------------------------------
+
+    def validate_date_list(raw_text):
+        """
+        Accept comma-separated YYYY-MM-DD dates.
+        Returns normalized list or raises ValueError.
+        """
+
+        raw_text = (raw_text or "").strip()
+
+        if not raw_text:
+            return []
+
+        normalized = []
+
+        for item in raw_text.split(","):
+
+            date_text = item.strip()
+
+            if not date_text:
+                continue
+
+            try:
+                parsed = datetime.strptime(
+                    date_text,
+                    "%Y-%m-%d"
+                )
+            except ValueError:
+                raise ValueError(
+                    f"Invalid date: {date_text}. "
+                    "Use YYYY-MM-DD."
+                )
+
+            normalized.append(
+                parsed.strftime("%Y-%m-%d")
+            )
+
+        return sorted(set(normalized))
+
+    try:
+        special_dates = validate_date_list(
+            special_class_dates
+        )
+
+        no_class_dates_list = validate_date_list(
+            no_class_dates
+        )
+
+    except ValueError as e:
+
+        return HTMLResponse(
+            content=f"""
+            <html>
+            <head>
+                <meta name="viewport"
+                      content="width=device-width, initial-scale=1.0">
+                <title>Schedule Error</title>
+            </head>
+
+            <body style="
+                margin:0;
+                background:#111;
+                color:white;
+                font-family:Arial, sans-serif;
+                text-align:center;
+            ">
+
+                <div style="padding:50px 20px;">
+
+                    <h1 style="color:#d4af37;">
+                        TSHRT
+                    </h1>
+
+                    <h2>Schedule Not Saved</h2>
+
+                    <p>{str(e)}</p>
+
+                    <p>
+                        No schedule changes were made.
+                    </p>
+
+                    <a href="/attendance-schedule"
+                       style="
+                           display:inline-block;
+                           margin-top:20px;
+                           padding:14px 22px;
+                           background:#d4af37;
+                           color:#000;
+                           text-decoration:none;
+                           border-radius:8px;
+                           font-weight:bold;
+                       ">
+                        RETURN TO SCHEDULE
+                    </a>
+
+                </div>
+
+            </body>
+            </html>
+            """,
+            status_code=400
+        )
+
+    # -----------------------------------------------------
+    # PREVENT DATE CONFLICTS
+    # -----------------------------------------------------
+
+    conflicts = sorted(
+        set(special_dates) &
+        set(no_class_dates_list)
+    )
+
+    if conflicts:
+
+        conflict_text = ", ".join(conflicts)
+
+        return HTMLResponse(
+            content=f"""
+            <html>
+            <head>
+                <meta name="viewport"
+                      content="width=device-width, initial-scale=1.0">
+                <title>Schedule Conflict</title>
+            </head>
+
+            <body style="
+                margin:0;
+                background:#111;
+                color:white;
+                font-family:Arial, sans-serif;
+                text-align:center;
+            ">
+
+                <div style="padding:50px 20px;">
+
+                    <h1 style="color:#d4af37;">
+                        TSHRT
+                    </h1>
+
+                    <h2>Schedule Not Saved</h2>
+
+                    <p>
+                        The following date appears as both
+                        a Special Class Date and a No-Class Date:
+                    </p>
+
+                    <p style="
+                        color:#d4af37;
+                        font-weight:bold;
+                    ">
+                        {conflict_text}
+                    </p>
+
+                    <p>
+                        Remove the conflict and try again.
+                    </p>
+
+                    <a href="/attendance-schedule"
+                       style="
+                           display:inline-block;
+                           margin-top:20px;
+                           padding:14px 22px;
+                           background:#d4af37;
+                           color:#000;
+                           text-decoration:none;
+                           border-radius:8px;
+                           font-weight:bold;
+                       ">
+                        RETURN TO SCHEDULE
+                    </a>
+
+                </div>
+
+            </body>
+            </html>
+            """,
+            status_code=400
+        )
+
+    # -----------------------------------------------------
+    # SAVE ACTIVE CHALLENGE SCHEDULE
+    # -----------------------------------------------------
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+
+        challenge = cur.execute("""
+            SELECT id
+            FROM challenges
+            WHERE active = 1
+            ORDER BY id DESC
+            LIMIT 1
+        """).fetchone()
+
+        if not challenge:
+            conn.close()
+
+            return HTMLResponse(
+                content="""
+                <html>
+                <body style="
+                    background:#111;
+                    color:white;
+                    font-family:Arial, sans-serif;
+                    text-align:center;
+                    padding:50px;
+                ">
+                    <h1 style="color:#d4af37;">TSHRT</h1>
+                    <h2>Schedule Not Saved</h2>
+                    <p>There is no active challenge.</p>
+                    <a href="/attendance-schedule"
+                       style="color:#d4af37;">
+                        Return to Schedule
+                    </a>
+                </body>
+                </html>
+                """,
+                status_code=400
+            )
+
+        class_days_text = ",".join(selected_days)
+        special_dates_text = ",".join(special_dates)
+        no_class_dates_text = ",".join(
+            no_class_dates_list
+        )
+
+        cur.execute("""
+            UPDATE challenges
+            SET
+                class_days = ?,
+                special_class_dates = ?,
+                no_class_dates = ?
+            WHERE id = ?
+        """, (
+            class_days_text,
+            special_dates_text,
+            no_class_dates_text,
+            challenge["id"]
+        ))
+
+        conn.commit()
+
+    except Exception as e:
+
+        conn.rollback()
+        conn.close()
+
+        return HTMLResponse(
+            content=f"""
+            <html>
+            <body style="
+                background:#111;
+                color:white;
+                font-family:Arial, sans-serif;
+                text-align:center;
+                padding:50px;
+            ">
+                <h1 style="color:#d4af37;">TSHRT</h1>
+                <h2>Schedule Not Saved</h2>
+                <p>{str(e)}</p>
+                <p>No schedule changes were made.</p>
+                <a href="/attendance-schedule"
+                   style="color:#d4af37;">
+                    Return to Schedule
+                </a>
+            </body>
+            </html>
+            """,
+            status_code=500
+        )
+
+    conn.close()
+
+    # -----------------------------------------------------
+    # SUCCESS
+    # -----------------------------------------------------
+
+    day_names = {
+        "0": "Monday",
+        "1": "Tuesday",
+        "2": "Wednesday",
+        "3": "Thursday",
+        "4": "Friday",
+        "5": "Saturday",
+        "6": "Sunday"
+    }
+
+    selected_day_names = ", ".join(
+        day_names[x] for x in selected_days
+    )
+
+    special_display = (
+        ", ".join(special_dates)
+        if special_dates
+        else "None"
+    )
+
+    no_class_display = (
+        ", ".join(no_class_dates_list)
+        if no_class_dates_list
+        else "None"
+    )
+
+    return f"""
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Schedule Saved</title>
+
+</head>
+
+<body style="
+    margin:0;
+    background:#111;
+    color:white;
+    font-family:Arial, sans-serif;
+    text-align:center;
+">
+
+    <div style="
+        background:#000;
+        border-bottom:4px solid #d4af37;
+        padding:25px;
+    ">
+
+        <h1 style="
+            color:#d4af37;
+            margin:0;
+        ">
+            TSHRT
+        </h1>
+
+        <p>Attendance Schedule Manager</p>
+
+    </div>
+
+    <div style="
+        max-width:650px;
+        margin:auto;
+        padding:40px 20px;
+    ">
+
+        <h2 style="color:#d4af37;">
+            SCHEDULE SAVED
+        </h2>
+
+        <p>
+            <strong>Regular Class Days:</strong><br>
+            {selected_day_names}
+        </p>
+
+        <p>
+            <strong>Special Class Dates:</strong><br>
+            {special_display}
+        </p>
+
+        <p>
+            <strong>No-Class Dates:</strong><br>
+            {no_class_display}
+        </p>
+
+        <p style="
+            color:#aaa;
+            margin-top:25px;
+        ">
+            Historical attendance records were not changed.
+        </p>
+
+        <a href="/attendance-schedule"
+           style="
+               display:inline-block;
+               margin-top:20px;
+               padding:14px 22px;
+               background:#d4af37;
+               color:#000;
+               text-decoration:none;
+               border-radius:8px;
+               font-weight:bold;
+           ">
+            RETURN TO SCHEDULE
+        </a>
+
+    </div>
+
+</body>
+</html>
+"""
 def parse_name(display_name: str):
     display_name = (display_name or "").strip()
     if not display_name:

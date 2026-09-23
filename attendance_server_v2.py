@@ -3795,42 +3795,77 @@ def client_pin_manager_action(client_id: str=Form(...), action: str=Form(...)):
 def student_checkin_page():
     conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
     if not session:
-        conn.close(); return HTMLResponse('''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client Check-In</title></head><body style="margin:0;background:#111;color:white;font-family:Arial;text-align:center"><div style="background:#000;border-bottom:4px solid #d4af37;padding:24px"><h1 style="color:#d4af37;margin:0">TSHRT</h1><p>Client Self Check-In</p></div><div style="max-width:600px;margin:55px auto;padding:20px"><h2>CHECK-IN CLOSED</h2><p>Your coach has not opened check-in.</p></div></body></html>''')
+        conn.close(); return HTMLResponse("<h1>CHECK-IN CLOSED</h1><p>Your coach has not opened check-in.</p>")
     session_date=session['session_date']; schedule=get_active_class_schedule(session_date)
-    if not schedule.get('is_class_day',False):
-        conn.close(); return HTMLResponse("Check-in is unavailable for this date.",status_code=409)
-    clients=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_setup_allowed FROM clients WHERE LOWER(TRIM(COALESCE(group_name,'')))='abc class' ORDER BY last_name,first_name,display_name""").fetchall(); conn.close()
+    if not schedule.get('is_class_day',False): conn.close(); return HTMLResponse("Check-in unavailable.",status_code=409)
+    clients=cur.execute("SELECT client_id,display_name,first_name,last_name FROM clients WHERE LOWER(TRIM(COALESCE(group_name,'')))='abc class' ORDER BY last_name,first_name,display_name").fetchall(); conn.close()
     options=['<option value="">-- SELECT YOUR NAME --</option>']
     for c in clients:
-        name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip(); mode='auth' if c['checkin_pin_hash'] else ('setup' if c['checkin_pin_setup_allowed'] else 'locked')
-        options.append(f'<option value="{_esc(c["client_id"])}" data-mode="{mode}">{_esc(name)}</option>')
-    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client Check-In</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial}}header{{background:#000;border-bottom:4px solid #d4af37;text-align:center;padding:22px}}h1{{color:#d4af37;margin:0}}main{{max-width:600px;margin:auto;padding:20px}}.card{{background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:22px}}select,input,button{{width:100%;font-size:20px;padding:15px;margin:9px 0;border-radius:8px}}button{{background:#d4af37;border:0;font-weight:bold}}.open{{color:#4caf50;text-align:center;font-size:24px;font-weight:bold}}#setup,#locked{{display:none}}small{{color:#aaa}}</style></head><body><header><h1>TSHRT</h1><p>Client Self Check-In</p></header><main><div class="card"><div class="open">CHECK-IN OPEN</div><p style="text-align:center">Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin"><select name="client_id" id="client" required>{''.join(options)}</select><div id="auth"><input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" id="pin" placeholder="PRIVATE PIN" maxlength="6"></div><div id="setup"><p>Create your private 4–6 digit PIN.</p><input type="password" inputmode="numeric" pattern="[0-9]*" name="new_pin" id="newpin" placeholder="CREATE PIN" maxlength="6"><input type="password" inputmode="numeric" pattern="[0-9]*" name="confirm_pin" id="confirm" placeholder="CONFIRM PIN" maxlength="6"></div><div id="locked"><p>PIN setup has not been authorized. Ask your coach to authorize setup.</p></div><button id="submit">CHECK IN</button></form><small>Your PIN is private and is never displayed or stored in readable form.</small></div></main><script>const c=document.getElementById('client'),a=document.getElementById('auth'),s=document.getElementById('setup'),l=document.getElementById('locked'),b=document.getElementById('submit');function mode(){{let o=c.options[c.selectedIndex],m=o?o.dataset.mode:'';a.style.display=m==='auth'?'block':'none';s.style.display=m==='setup'?'block':'none';l.style.display=m==='locked'?'block':'none';b.style.display=m==='locked'?'none':'block';document.getElementById('pin').required=m==='auth';document.getElementById('newpin').required=m==='setup';document.getElementById('confirm').required=m==='setup';b.textContent=m==='setup'?'CREATE PIN & CHECK IN':'CHECK IN'}}c.addEventListener('change',mode);mode();</script></body></html>''')
+        name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip()
+        options.append(f'<option value="{_esc(c["client_id"])}">{_esc(name)}</option>')
+    html=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client Check-In</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial}}header{{background:#000;border-bottom:4px solid #d4af37;text-align:center;padding:22px}}h1{{color:#d4af37;margin:0}}main{{max-width:600px;margin:auto;padding:20px}}.card{{background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:22px}}select,input,button{{width:100%;font-size:20px;padding:15px;margin:9px 0;border-radius:8px}}button{{background:#d4af37;border:0;font-weight:bold}}.open{{color:#4caf50;text-align:center;font-size:24px;font-weight:bold}}</style></head><body><header><h1>TSHRT</h1><p>Client Self Check-In</p></header><main><div class="card"><div class="open">CHECK-IN OPEN</div><p style="text-align:center">Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin/select"><select name="client_id" required>{''.join(options)}</select><button>CONTINUE</button></form></div></main></body></html>'''
+    return HTMLResponse(html,headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
+
+def _client_checkin_record(cur, client_id: str):
+    return cur.execute("SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_salt,checkin_pin_setup_allowed FROM clients WHERE client_id=? AND LOWER(TRIM(COALESCE(group_name,'')))='abc class' LIMIT 1",(client_id,)).fetchone()
+
+
+def _client_name(c):
+    return (c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip()
+
+
+@app.post("/student-checkin/select", response_class=HTMLResponse)
+def student_checkin_select(client_id: str=Form(...)):
+    conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
+    if not session: conn.close(); return HTMLResponse("CHECK-IN CLOSED",status_code=409)
+    session_date=session['session_date']; c=_client_checkin_record(cur,client_id)
+    if not c: conn.close(); return HTMLResponse("Invalid client selection.",status_code=400)
+    name=_client_name(c); has_pin=bool(c['checkin_pin_hash'] and c['checkin_pin_salt']); allowed=bool(c['checkin_pin_setup_allowed']); conn.close()
+    if has_pin:
+        body=f'''<h2>{_esc(name)}</h2><p>Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin"><input type="hidden" name="client_id" value="{_esc(client_id)}"><input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" placeholder="ENTER PRIVATE PIN" minlength="4" maxlength="6" required autofocus><button>CHECK IN</button></form>'''
+    elif allowed:
+        body=f'''<h2>{_esc(name)}</h2><p>Create your private 4–6 digit PIN. <b>This does not record attendance.</b></p><form method="post" action="/student-checkin/setup"><input type="hidden" name="client_id" value="{_esc(client_id)}"><input type="password" inputmode="numeric" pattern="[0-9]*" name="new_pin" placeholder="CREATE PIN" minlength="4" maxlength="6" required><input type="password" inputmode="numeric" pattern="[0-9]*" name="confirm_pin" placeholder="CONFIRM PIN" minlength="4" maxlength="6" required><button>CREATE PRIVATE PIN</button></form>'''
+    else:
+        body=f'''<h2>{_esc(name)}</h2><h3>PIN SETUP REQUIRED</h3><p>Your coach must authorize first-time PIN setup.</p>'''
+    html=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial;text-align:center}}.card{{max-width:600px;margin:40px auto;background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:25px}}h1,h2{{color:#d4af37}}input,button{{width:100%;font-size:20px;padding:15px;margin:9px 0;border-radius:8px}}button{{background:#d4af37;border:0;font-weight:bold}}a{{color:#d4af37}}</style></head><body><div class="card"><h1>TSHRT</h1>{body}<p><a href="/student-checkin">Choose a different name</a></p></div></body></html>'''
+    return HTMLResponse(html,headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
+
+@app.post("/student-checkin/setup", response_class=HTMLResponse)
+def student_checkin_setup(client_id: str=Form(...), new_pin: str=Form(...), confirm_pin: str=Form(...)):
+    conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
+    if not session: conn.close(); return HTMLResponse("CHECK-IN CLOSED",status_code=409)
+    c=_client_checkin_record(cur,client_id)
+    if not c: conn.close(); return HTMLResponse("Invalid client selection.",status_code=400)
+    if c['checkin_pin_hash']: conn.close(); return HTMLResponse("PIN already active. Return to check-in.",status_code=409)
+    if not c['checkin_pin_setup_allowed']: conn.close(); return HTMLResponse("PIN setup not authorized.",status_code=403)
+    if not _valid_pin(new_pin): conn.close(); return HTMLResponse("PIN must contain 4–6 digits.",status_code=400)
+    if new_pin!=confirm_pin: conn.close(); return HTMLResponse("PIN entries do not match.",status_code=400)
+    salt=secrets.token_hex(16); digest=_hash_checkin_pin(new_pin,salt)
+    cur.execute("UPDATE clients SET checkin_pin_hash=?,checkin_pin_salt=?,checkin_pin_setup_allowed=0 WHERE client_id=?",(digest,salt,client_id)); conn.commit(); conn.close()
+    return HTMLResponse('''<meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:50px auto;border:2px solid #d4af37;border-radius:12px;padding:30px"><h1 style="color:#d4af37">PIN CREATED</h1><p>Your PIN is active.</p><p><b>Attendance has NOT been recorded.</b></p><p><a href="/student-checkin" style="color:#d4af37;font-size:20px">RETURN TO CHECK IN</a></p></div></body>''',headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
 
 
 @app.post("/student-checkin", response_class=HTMLResponse)
-def student_checkin_submit(client_id: str=Form(...), pin: str=Form(""), new_pin: str=Form(""), confirm_pin: str=Form("")):
+def student_checkin_submit(client_id: str=Form(...), pin: str=Form(...)):
     conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
-    if not session:
-        conn.close(); return HTMLResponse("CHECK-IN CLOSED",status_code=409)
+    if not session: conn.close(); return HTMLResponse("CHECK-IN CLOSED",status_code=409)
     session_date=session['session_date']; schedule=get_active_class_schedule(session_date)
-    if not schedule.get('is_class_day',False): conn.close(); return HTMLResponse("Check-in is unavailable for this date.",status_code=409)
-    c=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_salt,checkin_pin_setup_allowed FROM clients WHERE client_id=? AND LOWER(TRIM(COALESCE(group_name,'')))='abc class' LIMIT 1""",(client_id,)).fetchone()
+    if not schedule.get('is_class_day',False): conn.close(); return HTMLResponse("Check-in unavailable.",status_code=409)
+    c=_client_checkin_record(cur,client_id)
     if not c: conn.close(); return HTMLResponse("Invalid client selection.",status_code=400)
-    if c['checkin_pin_hash']:
-        if not _valid_pin(pin) or not c['checkin_pin_salt']: conn.close(); return HTMLResponse("PIN REQUIRED",status_code=401)
-        if not hmac.compare_digest(_hash_checkin_pin(pin,c['checkin_pin_salt']),c['checkin_pin_hash']): conn.close(); return HTMLResponse("INCORRECT PIN — attendance was not changed.",status_code=401)
-    else:
-        if not c['checkin_pin_setup_allowed']: conn.close(); return HTMLResponse("PIN setup has not been authorized by your coach.",status_code=403)
-        if not _valid_pin(new_pin): conn.close(); return HTMLResponse("PIN must contain 4–6 digits.",status_code=400)
-        if new_pin!=confirm_pin: conn.close(); return HTMLResponse("PIN entries do not match.",status_code=400)
-        salt=secrets.token_hex(16); digest=_hash_checkin_pin(new_pin,salt); cur.execute("UPDATE clients SET checkin_pin_hash=?,checkin_pin_salt=?,checkin_pin_setup_allowed=0 WHERE client_id=?",(digest,salt,client_id))
+    if not c['checkin_pin_hash'] or not c['checkin_pin_salt']: conn.close(); return HTMLResponse("PIN SETUP REQUIRED — attendance was not changed.",status_code=401)
+    if not _valid_pin(pin): conn.close(); return HTMLResponse("PIN REQUIRED — attendance was not changed.",status_code=401)
+    if not hmac.compare_digest(_hash_checkin_pin(pin,c['checkin_pin_salt']),c['checkin_pin_hash']): conn.close(); return HTMLResponse("INCORRECT PIN — attendance was not changed.",status_code=401)
     finalized=cur.execute("SELECT 1 FROM attendance WHERE attended_date=? AND COALESCE(finalized,0)=1 LIMIT 1",(session_date,)).fetchone()
-    if finalized: conn.rollback(); conn.close(); return HTMLResponse("Attendance for this date has been finalized.",status_code=409)
+    if finalized: conn.close(); return HTMLResponse("Attendance for this date has been finalized.",status_code=409)
     already=cur.execute("SELECT 1 FROM attendance WHERE client_id=? AND attended_date=? AND present=1",(client_id,session_date)).fetchone()
-    if already: conn.commit(); conn.close(); return HTMLResponse("ALREADY CHECKED IN — no duplicate attendance was created.",status_code=200)
-    cur.execute("""INSERT INTO attendance(client_id,attended_date,present,finalized) VALUES(?,?,1,0) ON CONFLICT(client_id,attended_date) DO UPDATE SET present=1""",(client_id,session_date)); conn.commit(); conn.close()
-    name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip()
-    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Check-In Complete</title></head><body style="margin:0;background:#111;color:#fff;font-family:Arial;text-align:center"><div style="background:#000;border-bottom:4px solid #d4af37;padding:24px"><h1 style="color:#d4af37;margin:0">TSHRT</h1></div><div style="max-width:600px;margin:55px auto;padding:20px"><div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:30px"><div style="font-size:64px">&#10003;</div><h2 style="color:#d4af37">CHECK-IN COMPLETE</h2><p style="font-size:23px"><b>{_esc(name)}</b></p><p>Present for <b>{session_date}</b></p><p style="color:#aaa">You may close this page.</p></div></div></body></html>''')
+    if already: conn.close(); return HTMLResponse("ALREADY CHECKED IN — no duplicate attendance was created.",status_code=200)
+    cur.execute("INSERT INTO attendance(client_id,attended_date,present,finalized) VALUES(?,?,1,0) ON CONFLICT(client_id,attended_date) DO UPDATE SET present=1",(client_id,session_date)); conn.commit(); conn.close()
+    name=_client_name(c)
+    return HTMLResponse(f'''<meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:50px auto;border:2px solid #d4af37;border-radius:12px;padding:30px"><h1 style="color:#d4af37">CHECK-IN COMPLETE</h1><h2>{_esc(name)}</h2><p>Present for <b>{session_date}</b></p></div></body>''',headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
 
 # =========================================================
 # PHONE ATTENDANCE — SAVE

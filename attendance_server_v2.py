@@ -3,6 +3,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import sqlite3
 import os
+import hashlib
+import hmac
+import secrets
 from typing import List, Optional
 from datetime import datetime, timedelta
 
@@ -132,6 +135,17 @@ def upgrade_db():
         cur.execute("ALTER TABLE clients ADD COLUMN challenge_active INTEGER DEFAULT 0")
     except Exception:
         pass
+
+    # 13E — private client PIN authentication. The PIN itself is never stored.
+    for sql in (
+        "ALTER TABLE clients ADD COLUMN checkin_pin_hash TEXT",
+        "ALTER TABLE clients ADD COLUMN checkin_pin_salt TEXT",
+        "ALTER TABLE clients ADD COLUMN checkin_pin_setup_allowed INTEGER DEFAULT 0",
+    ):
+        try:
+            cur.execute(sql)
+        except Exception:
+            pass
     # =====================================================
     # STUDENT ATTENDANCE CHECK-IN SESSION
     # =====================================================
@@ -3466,7 +3480,7 @@ def phone_attendance(date: Optional[str] = None):
     session_is_open = bool(session_row and session_row["is_open"] == 1)
     session_status = "OPEN" if session_is_open else "CLOSED"
     session_action = "close" if session_is_open else "open"
-    session_button = "CLOSE STUDENT CHECK-IN" if session_is_open else "OPEN STUDENT CHECK-IN"
+    session_button = "CLOSE CLIENT CHECK-IN" if session_is_open else "OPEN CLIENT CHECK-IN"
     session_color = "#2e7d32" if session_is_open else "#8b1e1e"
 
     conn.close()
@@ -3621,7 +3635,7 @@ def phone_attendance(date: Optional[str] = None):
     </div>
 
     <div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:10px;padding:16px;margin-bottom:18px;text-align:center;">
-        <div style="font-size:17px;color:#ddd;margin-bottom:8px;">Student QR Check-In</div>
+        <div style="font-size:17px;color:#ddd;margin-bottom:8px;">Client Self Check-In</div>
         <div style="font-size:26px;font-weight:bold;color:{session_color};margin-bottom:12px;">{session_status}</div>
         <form method="post" action="/phone-attendance/checkin-session">
             <input type="hidden" name="attended_date" value="{today}">
@@ -3631,7 +3645,8 @@ def phone_attendance(date: Optional[str] = None):
             </button>
         </form>
         <div style="font-size:13px;color:#aaa;margin-top:10px;">
-            Student QR attendance can only be accepted while this session is OPEN.
+            Client self check-in can only be accepted while this session is OPEN.<br><br>
+            <a href="/phone-attendance/pin-manager" style="color:#d4af37;font-weight:bold;">CLIENT PIN MANAGER</a>
         </div>
     </div>
 
@@ -3725,122 +3740,97 @@ def set_phone_checkin_session(
 
 
 # =========================================================
-# 13D — STUDENT QR SELF CHECK-IN PAGE
+# 13D / 13E — CLIENT SELF CHECK-IN + PRIVATE PIN GATE
 # =========================================================
 
+PIN_ITERATIONS = 200_000
+
+
 def _get_open_student_checkin_session(cur):
-    """Return the most recently opened student check-in session, if any."""
-    return cur.execute("""
-        SELECT session_date, opened_at
-        FROM attendance_checkin_sessions
-        WHERE is_open = 1
-        ORDER BY COALESCE(opened_at, created_at) DESC, id DESC
-        LIMIT 1
-    """).fetchone()
+    return cur.execute("""SELECT session_date, opened_at FROM attendance_checkin_sessions WHERE is_open=1 ORDER BY COALESCE(opened_at,created_at) DESC,id DESC LIMIT 1""").fetchone()
+
+
+def _hash_checkin_pin(pin: str, salt_hex: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), bytes.fromhex(salt_hex), PIN_ITERATIONS).hex()
+
+
+def _valid_pin(pin: str) -> bool:
+    return pin.isdigit() and 4 <= len(pin) <= 6
+
+
+def _esc(value) -> str:
+    return str(value or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+
+
+@app.get("/phone-attendance/pin-manager", response_class=HTMLResponse)
+def client_pin_manager():
+    conn=get_conn(); cur=conn.cursor()
+    clients=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_setup_allowed FROM clients WHERE LOWER(TRIM(COALESCE(group_name,'')))='abc class' ORDER BY last_name,first_name,display_name""").fetchall(); conn.close()
+    rows=[]
+    for c in clients:
+        name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip()
+        has_pin=bool(c['checkin_pin_hash']); allowed=bool(c['checkin_pin_setup_allowed'])
+        status="PIN ACTIVE" if has_pin else ("SETUP AUTHORIZED" if allowed else "NO PIN")
+        action="reset" if has_pin else ("cancel" if allowed else "authorize")
+        label="RESET PIN" if has_pin else ("CANCEL SETUP" if allowed else "AUTHORIZE PIN SETUP")
+        rows.append(f'''<div class="row"><div><strong>{_esc(name)}</strong><br><span>{status}</span></div><form method="post" action="/phone-attendance/pin-manager"><input type="hidden" name="client_id" value="{_esc(c['client_id'])}"><input type="hidden" name="action" value="{action}"><button>{label}</button></form></div>''')
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client PIN Manager</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial}}header{{background:#000;border-bottom:4px solid #d4af37;text-align:center;padding:20px}}h1{{color:#d4af37;margin:0}}main{{max-width:700px;margin:auto;padding:18px}}.row{{display:flex;justify-content:space-between;gap:12px;align-items:center;background:#1c1c1c;border:1px solid #555;border-radius:10px;padding:14px;margin:10px 0}}span{{color:#aaa;font-size:13px}}button{{background:#d4af37;border:0;border-radius:7px;padding:11px;font-weight:bold}}a{{color:#d4af37}}</style></head><body><header><h1>TSHRT</h1><p>Client PIN Manager</p></header><main><p>Authorize first-time setup or reset a forgotten PIN. PINs are never displayed.</p>{''.join(rows)}<p><a href="/phone-attendance">Return to Phone Attendance</a></p></main></body></html>''')
+
+
+@app.post("/phone-attendance/pin-manager", response_class=HTMLResponse)
+def client_pin_manager_action(client_id: str=Form(...), action: str=Form(...)):
+    conn=get_conn(); cur=conn.cursor()
+    exists=cur.execute("SELECT 1 FROM clients WHERE client_id=? AND LOWER(TRIM(COALESCE(group_name,'')))='abc class'",(client_id,)).fetchone()
+    if not exists:
+        conn.close(); return HTMLResponse("Invalid client.",status_code=400)
+    if action=="authorize": cur.execute("UPDATE clients SET checkin_pin_setup_allowed=1 WHERE client_id=?",(client_id,))
+    elif action=="reset": cur.execute("UPDATE clients SET checkin_pin_hash=NULL,checkin_pin_salt=NULL,checkin_pin_setup_allowed=1 WHERE client_id=?",(client_id,))
+    elif action=="cancel": cur.execute("UPDATE clients SET checkin_pin_setup_allowed=0 WHERE client_id=?",(client_id,))
+    else:
+        conn.close(); return HTMLResponse("Invalid action.",status_code=400)
+    conn.commit(); conn.close(); return HTMLResponse('<meta http-equiv="refresh" content="0;url=/phone-attendance/pin-manager">')
 
 
 @app.get("/student-checkin", response_class=HTMLResponse)
 def student_checkin_page():
-    """Permanent student-facing landing page used by the TSHRT QR code."""
-    conn = get_conn()
-    cur = conn.cursor()
-    session = _get_open_student_checkin_session(cur)
-
+    conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
     if not session:
-        conn.close()
-        return HTMLResponse(content='''<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>TSHRT Student Check-In</title></head>
-<body style="margin:0;background:#111;color:white;font-family:Arial,sans-serif;text-align:center;">
-<div style="background:#000;border-bottom:4px solid #d4af37;padding:24px 15px;"><h1 style="margin:0;color:#d4af37;">TSHRT</h1><p>Student QR Check-In</p></div>
-<div style="max-width:600px;margin:55px auto;padding:20px;"><div style="background:#1c1c1c;border:2px solid #8b1e1e;border-radius:12px;padding:30px 20px;">
-<h2 style="font-size:30px;margin-top:0;">CHECK-IN CLOSED</h2><p style="font-size:18px;line-height:1.5;color:#ddd;">Your instructor has not opened student attendance.</p>
-<p style="color:#aaa;">No attendance record was changed.</p></div></div></body></html>''')
-
-    session_date = session["session_date"]
-    schedule = get_active_class_schedule(session_date)
-    if not schedule.get("is_class_day", False):
-        conn.close()
-        return HTMLResponse(content="Check-in is unavailable because the open session is not a valid class date.", status_code=409)
-
-    clients = cur.execute("""
-        SELECT client_id, display_name, first_name, last_name
-        FROM clients
-        WHERE LOWER(TRIM(COALESCE(group_name, ''))) = 'abc class'
-        ORDER BY last_name, first_name, display_name
-    """).fetchall()
-    conn.close()
-
-    options = ['<option value="">-- SELECT YOUR NAME --</option>']
-    for row in clients:
-        name = (row["display_name"] or "").strip()
-        if not name:
-            name = f'{(row["first_name"] or "").strip()} {(row["last_name"] or "").strip()}'.strip()
-        safe_id = (row["client_id"] or "").replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
-        safe_name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        options.append(f'<option value="{safe_id}">{safe_name}</option>')
-
-    return HTMLResponse(content=f'''<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>TSHRT Student Check-In</title>
-<style>*{{box-sizing:border-box}} body{{margin:0;background:#111;color:white;font-family:Arial,sans-serif}} .header{{background:#000;border-bottom:4px solid #d4af37;padding:22px 15px;text-align:center}} .header h1{{margin:0;color:#d4af37;font-size:30px}} .wrap{{max-width:600px;margin:auto;padding:22px 16px}} .card{{background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:24px 18px;text-align:center}} select{{width:100%;font-size:20px;padding:16px;margin:18px 0;border-radius:8px;background:#fff;color:#000}} button{{width:100%;padding:18px;border:0;border-radius:8px;background:#d4af37;color:#000;font-size:22px;font-weight:bold;cursor:pointer}} .open{{color:#4caf50;font-weight:bold;font-size:24px}} .date{{font-size:19px;color:#ddd}}</style></head><body>
-<div class="header"><h1>TSHRT</h1><p>Student QR Check-In</p></div><div class="wrap"><div class="card"><div class="open">CHECK-IN OPEN</div>
-<p class="date">Attendance Date: <strong>{session_date}</strong></p><p>Select your name, then press CHECK IN.</p>
-<form method="post" action="/student-checkin"><select name="client_id" required>{''.join(options)}</select><button type="submit">CHECK IN</button></form>
-<p style="font-size:13px;color:#aaa;margin-top:18px;">Only check in for yourself.</p></div></div></body></html>''')
+        conn.close(); return HTMLResponse('''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client Check-In</title></head><body style="margin:0;background:#111;color:white;font-family:Arial;text-align:center"><div style="background:#000;border-bottom:4px solid #d4af37;padding:24px"><h1 style="color:#d4af37;margin:0">TSHRT</h1><p>Client Self Check-In</p></div><div style="max-width:600px;margin:55px auto;padding:20px"><h2>CHECK-IN CLOSED</h2><p>Your coach has not opened check-in.</p></div></body></html>''')
+    session_date=session['session_date']; schedule=get_active_class_schedule(session_date)
+    if not schedule.get('is_class_day',False):
+        conn.close(); return HTMLResponse("Check-in is unavailable for this date.",status_code=409)
+    clients=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_setup_allowed FROM clients WHERE LOWER(TRIM(COALESCE(group_name,'')))='abc class' ORDER BY last_name,first_name,display_name""").fetchall(); conn.close()
+    options=['<option value="">-- SELECT YOUR NAME --</option>']
+    for c in clients:
+        name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip(); mode='auth' if c['checkin_pin_hash'] else ('setup' if c['checkin_pin_setup_allowed'] else 'locked')
+        options.append(f'<option value="{_esc(c["client_id"])}" data-mode="{mode}">{_esc(name)}</option>')
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Client Check-In</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial}}header{{background:#000;border-bottom:4px solid #d4af37;text-align:center;padding:22px}}h1{{color:#d4af37;margin:0}}main{{max-width:600px;margin:auto;padding:20px}}.card{{background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:22px}}select,input,button{{width:100%;font-size:20px;padding:15px;margin:9px 0;border-radius:8px}}button{{background:#d4af37;border:0;font-weight:bold}}.open{{color:#4caf50;text-align:center;font-size:24px;font-weight:bold}}#setup,#locked{{display:none}}small{{color:#aaa}}</style></head><body><header><h1>TSHRT</h1><p>Client Self Check-In</p></header><main><div class="card"><div class="open">CHECK-IN OPEN</div><p style="text-align:center">Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin"><select name="client_id" id="client" required>{''.join(options)}</select><div id="auth"><input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" id="pin" placeholder="PRIVATE PIN" maxlength="6"></div><div id="setup"><p>Create your private 4–6 digit PIN.</p><input type="password" inputmode="numeric" pattern="[0-9]*" name="new_pin" id="newpin" placeholder="CREATE PIN" maxlength="6"><input type="password" inputmode="numeric" pattern="[0-9]*" name="confirm_pin" id="confirm" placeholder="CONFIRM PIN" maxlength="6"></div><div id="locked"><p>PIN setup has not been authorized. Ask your coach to authorize setup.</p></div><button id="submit">CHECK IN</button></form><small>Your PIN is private and is never displayed or stored in readable form.</small></div></main><script>const c=document.getElementById('client'),a=document.getElementById('auth'),s=document.getElementById('setup'),l=document.getElementById('locked'),b=document.getElementById('submit');function mode(){{let o=c.options[c.selectedIndex],m=o?o.dataset.mode:'';a.style.display=m==='auth'?'block':'none';s.style.display=m==='setup'?'block':'none';l.style.display=m==='locked'?'block':'none';b.style.display=m==='locked'?'none':'block';document.getElementById('pin').required=m==='auth';document.getElementById('newpin').required=m==='setup';document.getElementById('confirm').required=m==='setup';b.textContent=m==='setup'?'CREATE PIN & CHECK IN':'CHECK IN'}}c.addEventListener('change',mode);mode();</script></body></html>''')
 
 
 @app.post("/student-checkin", response_class=HTMLResponse)
-def student_checkin_submit(client_id: str = Form(...)):
-    """Record one student as present for the currently OPEN instructor session."""
-    conn = get_conn()
-    cur = conn.cursor()
-    session = _get_open_student_checkin_session(cur)
-
+def student_checkin_submit(client_id: str=Form(...), pin: str=Form(""), new_pin: str=Form(""), confirm_pin: str=Form("")):
+    conn=get_conn(); cur=conn.cursor(); session=_get_open_student_checkin_session(cur)
     if not session:
-        conn.close()
-        return HTMLResponse(content='''<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>TSHRT Student Check-In</title></head>
-<body style="background:#111;color:white;font-family:Arial;text-align:center;padding:45px 20px;"><h1 style="color:#d4af37;">TSHRT</h1><h2>CHECK-IN CLOSED</h2>
-<p>Your instructor has closed student attendance.</p><a href="/student-checkin" style="color:#d4af37;font-size:18px;">Return</a></body></html>''', status_code=409)
-
-    session_date = session["session_date"]
-    schedule = get_active_class_schedule(session_date)
-    if not schedule.get("is_class_day", False):
-        conn.close()
-        return HTMLResponse(content="Check-in is not available for this date.", status_code=409)
-
-    client = cur.execute("""
-        SELECT client_id, display_name, first_name, last_name
-        FROM clients
-        WHERE client_id = ? AND LOWER(TRIM(COALESCE(group_name, ''))) = 'abc class'
-        LIMIT 1
-    """, (client_id,)).fetchone()
-    if not client:
-        conn.close()
-        return HTMLResponse(content="Invalid ABC Class student selection.", status_code=400)
-
-    finalized = cur.execute("""SELECT 1 FROM attendance WHERE attended_date = ? AND COALESCE(finalized, 0) = 1 LIMIT 1""", (session_date,)).fetchone()
-    if finalized:
-        conn.close()
-        return HTMLResponse(content="Attendance for this date has been finalized.", status_code=409)
-
-    cur.execute("""
-        INSERT INTO attendance (client_id, attended_date, present, finalized)
-        VALUES (?, ?, 1, 0)
-        ON CONFLICT(client_id, attended_date) DO UPDATE SET present = 1
-    """, (client_id, session_date))
-    conn.commit()
-    conn.close()
-
-    name = (client["display_name"] or "").strip()
-    if not name:
-        name = f'{(client["first_name"] or "").strip()} {(client["last_name"] or "").strip()}'.strip()
-    safe_name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    return HTMLResponse(content=f'''<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>TSHRT Check-In Complete</title></head>
-<body style="margin:0;background:#111;color:white;font-family:Arial,sans-serif;text-align:center;"><div style="background:#000;border-bottom:4px solid #d4af37;padding:24px 15px;"><h1 style="margin:0;color:#d4af37;">TSHRT</h1></div>
-<div style="max-width:600px;margin:55px auto;padding:20px;"><div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:30px 20px;">
-<div style="font-size:64px;">&#10003;</div><h2 style="color:#d4af37;">CHECK-IN COMPLETE</h2><p style="font-size:23px;"><strong>{safe_name}</strong></p>
-<p style="font-size:18px;">Present for <strong>{session_date}</strong></p><p style="color:#aaa;">You may close this page.</p></div></div></body></html>''')
-
+        conn.close(); return HTMLResponse("CHECK-IN CLOSED",status_code=409)
+    session_date=session['session_date']; schedule=get_active_class_schedule(session_date)
+    if not schedule.get('is_class_day',False): conn.close(); return HTMLResponse("Check-in is unavailable for this date.",status_code=409)
+    c=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_salt,checkin_pin_setup_allowed FROM clients WHERE client_id=? AND LOWER(TRIM(COALESCE(group_name,'')))='abc class' LIMIT 1""",(client_id,)).fetchone()
+    if not c: conn.close(); return HTMLResponse("Invalid client selection.",status_code=400)
+    if c['checkin_pin_hash']:
+        if not _valid_pin(pin) or not c['checkin_pin_salt']: conn.close(); return HTMLResponse("PIN REQUIRED",status_code=401)
+        if not hmac.compare_digest(_hash_checkin_pin(pin,c['checkin_pin_salt']),c['checkin_pin_hash']): conn.close(); return HTMLResponse("INCORRECT PIN — attendance was not changed.",status_code=401)
+    else:
+        if not c['checkin_pin_setup_allowed']: conn.close(); return HTMLResponse("PIN setup has not been authorized by your coach.",status_code=403)
+        if not _valid_pin(new_pin): conn.close(); return HTMLResponse("PIN must contain 4–6 digits.",status_code=400)
+        if new_pin!=confirm_pin: conn.close(); return HTMLResponse("PIN entries do not match.",status_code=400)
+        salt=secrets.token_hex(16); digest=_hash_checkin_pin(new_pin,salt); cur.execute("UPDATE clients SET checkin_pin_hash=?,checkin_pin_salt=?,checkin_pin_setup_allowed=0 WHERE client_id=?",(digest,salt,client_id))
+    finalized=cur.execute("SELECT 1 FROM attendance WHERE attended_date=? AND COALESCE(finalized,0)=1 LIMIT 1",(session_date,)).fetchone()
+    if finalized: conn.rollback(); conn.close(); return HTMLResponse("Attendance for this date has been finalized.",status_code=409)
+    already=cur.execute("SELECT 1 FROM attendance WHERE client_id=? AND attended_date=? AND present=1",(client_id,session_date)).fetchone()
+    if already: conn.commit(); conn.close(); return HTMLResponse("ALREADY CHECKED IN — no duplicate attendance was created.",status_code=200)
+    cur.execute("""INSERT INTO attendance(client_id,attended_date,present,finalized) VALUES(?,?,1,0) ON CONFLICT(client_id,attended_date) DO UPDATE SET present=1""",(client_id,session_date)); conn.commit(); conn.close()
+    name=(c['display_name'] or '').strip() or f"{c['first_name'] or ''} {c['last_name'] or ''}".strip()
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Check-In Complete</title></head><body style="margin:0;background:#111;color:#fff;font-family:Arial;text-align:center"><div style="background:#000;border-bottom:4px solid #d4af37;padding:24px"><h1 style="color:#d4af37;margin:0">TSHRT</h1></div><div style="max-width:600px;margin:55px auto;padding:20px"><div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:30px"><div style="font-size:64px">&#10003;</div><h2 style="color:#d4af37">CHECK-IN COMPLETE</h2><p style="font-size:23px"><b>{_esc(name)}</b></p><p>Present for <b>{session_date}</b></p><p style="color:#aaa">You may close this page.</p></div></div></body></html>''')
 
 # =========================================================
 # PHONE ATTENDANCE — SAVE

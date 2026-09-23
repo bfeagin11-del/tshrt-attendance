@@ -3229,7 +3229,7 @@ def merge_duplicate_clients(execute: bool = False):
 # =========================================================
 
 @app.get("/phone-attendance", response_class=HTMLResponse)
-def phone_attendance():
+def phone_attendance(date: Optional[str] = None):
     """
     Mobile-friendly instructor attendance page.
     Uses the existing TSHRT clients and attendance system.
@@ -3239,7 +3239,7 @@ def phone_attendance():
     # CLASS-DAY SAFETY CHECK
     # ---------------------------------------------------------
 
-    schedule = get_active_class_schedule()
+    schedule = get_active_class_schedule(date)
 
     today = schedule.get(
         "date",
@@ -3348,6 +3348,16 @@ def phone_attendance():
 </div>
 
 <div class="container">
+
+    <form method="get" action="/phone-attendance" style="margin-bottom:20px;">
+        <label for="date" style="display:block;margin-bottom:8px;font-weight:bold;">Attendance Date</label>
+        <input id="date" name="date" type="date" value="{today}"
+               style="font-size:18px;padding:12px;border-radius:8px;border:1px solid #666;background:#222;color:white;">
+        <button type="submit"
+                style="font-size:18px;padding:12px 16px;margin-left:6px;border:0;border-radius:8px;background:#d4af37;color:#000;font-weight:bold;">
+            LOAD DATE
+        </button>
+    </form>
 
     <div class="status">
 
@@ -3516,6 +3526,16 @@ def phone_attendance():
 </div>
 
 <div class="container">
+
+    <form method="get" action="/phone-attendance" style="margin-bottom:15px;text-align:center;">
+        <label for="date" style="display:block;margin-bottom:8px;font-weight:bold;">Attendance Date</label>
+        <input id="date" name="date" type="date" value="{today}"
+               style="font-size:18px;padding:12px;border-radius:8px;border:1px solid #666;background:#222;color:white;">
+        <button type="submit"
+                style="font-size:18px;padding:12px 16px;margin-left:6px;border:0;border-radius:8px;background:#d4af37;color:#000;font-weight:bold;">
+            LOAD DATE
+        </button>
+    </form>
 
     <div class="date">
         Attendance Date: <strong>{today}</strong>

@@ -3439,9 +3439,20 @@ def phone_attendance(date: Optional[str] = None):
     clients = cur.execute("""
         SELECT client_id, display_name, first_name, last_name
         FROM clients
-        WHERE LOWER(COALESCE(group_name, '')) = 'abc class'
+        WHERE LOWER(TRIM(COALESCE(group_name, ''))) = 'abc class'
         ORDER BY last_name, first_name, display_name
     """).fetchall()
+
+    present_rows = cur.execute("""
+        SELECT a.client_id
+        FROM attendance a
+        JOIN clients c ON c.client_id = a.client_id
+        WHERE a.attended_date = ?
+          AND COALESCE(a.present, 1) = 1
+          AND LOWER(TRIM(COALESCE(c.group_name, ''))) = 'abc class'
+    """, (today,)).fetchall()
+
+    present_ids = {row["client_id"] for row in present_rows}
 
     conn.close()
 
@@ -3457,11 +3468,14 @@ def phone_attendance(date: Optional[str] = None):
             last = (row["last_name"] or "").strip()
             display_name = f"{first} {last}".strip()
 
+        checked = "checked" if client_id in present_ids else ""
+
         student_buttons += f"""
         <label class="student">
             <input type="checkbox"
                    name="client_ids"
-                   value="{client_id}">
+                   value="{client_id}"
+                   {checked}>
             <span>{display_name}</span>
         </label>
         """
@@ -3776,42 +3790,64 @@ def save_phone_attendance(
     saved = 0
 
     try:
+        # Only ABC Class client IDs are valid for this instructor page.
+        valid_rows = cur.execute("""
+            SELECT client_id
+            FROM clients
+            WHERE LOWER(TRIM(COALESCE(group_name, ''))) = 'abc class'
+        """).fetchall()
+        valid_ids = {row["client_id"] for row in valid_rows}
+        selected_ids = [cid for cid in selected_ids if cid in valid_ids]
+
+        # A finalized date is locked everywhere, including phone attendance.
+        finalized = cur.execute("""
+            SELECT 1
+            FROM attendance
+            WHERE attended_date = ?
+              AND COALESCE(finalized, 0) = 1
+            LIMIT 1
+        """, (attended_date,)).fetchone()
+
+        if finalized:
+            conn.close()
+            return HTMLResponse(
+                content=f"""
+                <html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+                <body style="background:#111;color:white;font-family:Arial;text-align:center;padding:40px;">
+                    <h1 style="color:#d4af37;">TSHRT ATTENDANCE</h1>
+                    <h2>DATE IS FINALIZED</h2>
+                    <p>{attended_date} is locked. Unfinalize the date before changing attendance.</p>
+                    <a href="/phone-attendance?date={attended_date}" style="color:#d4af37;font-size:20px;">Return to Attendance</a>
+                </body></html>
+                """,
+                status_code=409
+            )
+
+        cur.execute("BEGIN")
+
+        # Phone attendance is authoritative for this ABC Class date:
+        # clear the editable ABC records for the date, then write the
+        # students currently checked PRESENT. This makes the phone page
+        # and Attendance Board read the exact same attendance state.
+        cur.execute("""
+            DELETE FROM attendance
+            WHERE attended_date = ?
+              AND COALESCE(finalized, 0) = 0
+              AND client_id IN (
+                  SELECT client_id
+                  FROM clients
+                  WHERE LOWER(TRIM(COALESCE(group_name, ''))) = 'abc class'
+              )
+        """, (attended_date,))
+
         for client_id in selected_ids:
-
-            client = cur.execute("""
-                SELECT client_id
-                FROM clients
-                WHERE client_id = ?
-                LIMIT 1
-            """, (client_id,)).fetchone()
-
-            if not client:
-                continue
-
-            existing = cur.execute("""
-                SELECT id
-                FROM attendance
-                WHERE client_id = ?
-                  AND attended_date = ?
-                LIMIT 1
-            """, (client_id, attended_date)).fetchone()
-
-            if existing:
-                cur.execute("""
-                    UPDATE attendance
-                    SET present = 1
-                    WHERE id = ?
-                """, (existing["id"],))
-            else:
-                cur.execute("""
-                    INSERT INTO attendance
-                        (client_id, attended_date, present, finalized)
-                    VALUES (?, ?, 1, 0)
-                """, (
-                    client_id,
-                    attended_date
-                ))
-
+            cur.execute("""
+                INSERT INTO attendance
+                    (client_id, attended_date, present, finalized)
+                VALUES (?, ?, 1, 0)
+                ON CONFLICT(client_id, attended_date) DO UPDATE SET
+                    present = 1
+            """, (client_id, attended_date))
             saved += 1
 
         conn.commit()
@@ -3843,7 +3879,7 @@ def save_phone_attendance(
 
             <p>{str(exc)}</p>
 
-            <a href="/phone-attendance"
+            <a href="/phone-attendance?date={attended_date}"
                style="color:#d4af37;font-size:20px;">
                 Return to Attendance
             </a>
@@ -3909,7 +3945,7 @@ def save_phone_attendance(
             Date: <strong>{attended_date}</strong>
         </p>
 
-        <a href="/phone-attendance"
+        <a href="/phone-attendance?date={attended_date}"
            style="
                display:inline-block;
                margin-top:25px;

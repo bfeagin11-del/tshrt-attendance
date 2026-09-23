@@ -1162,11 +1162,51 @@ def get_active_challenge_dates(cur):
 
 @app.get("/challenge/active")
 def active_challenge():
-    conn=get_conn()
-    cur=conn.cursor()
-    start_date,end_date=get_active_challenge_dates(cur)
+    conn = get_conn()
+    cur = conn.cursor()
+
+    row = cur.execute("""
+        SELECT
+            start_date,
+            end_date,
+            COALESCE(special_class_dates, '') AS special_class_dates,
+            COALESCE(no_class_dates, '') AS no_class_dates
+        FROM challenges
+        WHERE active = 1
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
+
     conn.close()
-    return {"ok":bool(start_date),"start_date":start_date,"end_date":end_date}
+
+    if not row:
+        return {
+            "ok": False,
+            "start_date": None,
+            "end_date": None,
+            "special_class_dates": [],
+            "no_class_dates": []
+        }
+
+    special_dates = [
+        x.strip()
+        for x in str(row["special_class_dates"] or "").split(",")
+        if x.strip()
+    ]
+
+    no_class_dates = [
+        x.strip()
+        for x in str(row["no_class_dates"] or "").split(",")
+        if x.strip()
+    ]
+
+    return {
+        "ok": True,
+        "start_date": row["start_date"],
+        "end_date": row["end_date"],
+        "special_class_dates": special_dates,
+        "no_class_dates": no_class_dates
+    }
 
 def build_leaderboard_data(group: str):
     conn = get_conn()
@@ -2204,7 +2244,9 @@ let state = {
     clients: [],
     dates: [],
     selected: {},
-    finalizedDates: new Set()
+    finalizedDates: new Set(),
+    specialDates: new Set(),
+    noClassDates: new Set()
 };
 
 function setStatus(message) {
@@ -2270,11 +2312,17 @@ function buildDates() {
     let safetyCounter = 0;
 
     while (cursor <= end && safetyCounter < 400) {
-        if (selectedDays.indexOf(cursor.getDay()) !== -1) {
-            const y = cursor.getFullYear();
-            const m = String(cursor.getMonth() + 1).padStart(2, "0");
-            const d = String(cursor.getDate()).padStart(2, "0");
-            dates.push(y + "-" + m + "-" + d);
+        const y = cursor.getFullYear();
+        const m = String(cursor.getMonth() + 1).padStart(2, "0");
+        const d = String(cursor.getDate()).padStart(2, "0");
+        const dateStr = y + "-" + m + "-" + d;
+
+        const isRegularDay = selectedDays.indexOf(cursor.getDay()) !== -1;
+        const isSpecialDay = state.specialDates.has(dateStr);
+        const isNoClassDay = state.noClassDates.has(dateStr);
+
+        if (!isNoClassDay && (isRegularDay || isSpecialDay)) {
+            dates.push(dateStr);
         }
 
         cursor.setDate(cursor.getDate() + 1);
@@ -2569,6 +2617,8 @@ async function loadActiveChallenge(){
         if(d.ok){
             document.getElementById("start").value=d.start_date;
             document.getElementById("end").value=d.end_date;
+            state.specialDates = new Set(d.special_class_dates || []);
+            state.noClassDates = new Set(d.no_class_dates || []);
         }
     }catch(e){
         console.warn(e);

@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 import sqlite3
 import os
@@ -12,6 +12,67 @@ from datetime import datetime, timedelta
 app = FastAPI()
 
 DB_PATH = "/data/cloud.db"
+
+
+# =========================================================
+# 13E-2 — ADMINISTRATOR AUTHENTICATION
+# =========================================================
+# Render environment variables required:
+#   TSHRT_ADMIN_PASSWORD
+#   TSHRT_ADMIN_SESSION_SECRET
+
+ADMIN_COOKIE_NAME = "tshrt_admin_session"
+ADMIN_SESSION_SECONDS = 8 * 60 * 60
+
+def _admin_configured() -> bool:
+    return bool(os.environ.get("TSHRT_ADMIN_PASSWORD")) and bool(os.environ.get("TSHRT_ADMIN_SESSION_SECRET"))
+
+def _admin_signature(timestamp_text: str) -> str:
+    secret = os.environ.get("TSHRT_ADMIN_SESSION_SECRET", "")
+    return hmac.new(secret.encode("utf-8"), timestamp_text.encode("utf-8"), hashlib.sha256).hexdigest()
+
+def _make_admin_token() -> str:
+    timestamp_text = str(int(datetime.now().timestamp()))
+    return f"{timestamp_text}.{_admin_signature(timestamp_text)}"
+
+def _admin_authenticated(request: Request) -> bool:
+    if not _admin_configured(): return False
+    token = request.cookies.get(ADMIN_COOKIE_NAME, "")
+    try:
+        timestamp_text, signature = token.split(".", 1)
+        issued = int(timestamp_text)
+    except (ValueError, TypeError):
+        return False
+    if abs(int(datetime.now().timestamp()) - issued) > ADMIN_SESSION_SECONDS: return False
+    return hmac.compare_digest(signature, _admin_signature(timestamp_text))
+
+def _require_admin(request: Request):
+    if _admin_authenticated(request): return None
+    return RedirectResponse(url="/admin-login", status_code=303)
+
+@app.get("/admin-login", response_class=HTMLResponse)
+def admin_login_page(request: Request):
+    if _admin_authenticated(request): return RedirectResponse(url="/phone-attendance", status_code=303)
+    configured = _admin_configured()
+    warning = "" if configured else '<div style="background:#421;color:#ffd7d7;border:1px solid #a55;padding:12px;border-radius:8px;margin-bottom:15px">Administrator security is not configured. Set <b>TSHRT_ADMIN_PASSWORD</b> and <b>TSHRT_ADMIN_SESSION_SECRET</b> in Render.</div>'
+    html = f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>TSHRT Administrator Login</title><style>*{{box-sizing:border-box}}body{{margin:0;background:#111;color:#fff;font-family:Arial}}header{{background:#000;border-bottom:4px solid #d4af37;text-align:center;padding:24px}}h1{{color:#d4af37;margin:0}}main{{max-width:480px;margin:45px auto;padding:20px}}.card{{background:#1c1c1c;border:2px solid #d4af37;border-radius:12px;padding:24px}}input,button{{width:100%;font-size:19px;padding:14px;margin:9px 0;border-radius:8px}}button{{background:#d4af37;border:0;font-weight:bold}}</style></head><body><header><h1>TSHRT</h1><p>Administrator Access</p></header><main><div class="card">{warning}<form method="post" action="/admin-login"><input type="password" name="password" placeholder="ADMINISTRATOR PASSWORD" required autocomplete="current-password"><button>ADMIN LOGIN</button></form></div></main></body></html>'''
+    return HTMLResponse(html, headers={"Cache-Control":"no-store"})
+
+@app.post("/admin-login", response_class=HTMLResponse)
+def admin_login_submit(password: str = Form(...)):
+    expected = os.environ.get("TSHRT_ADMIN_PASSWORD", "")
+    if not _admin_configured(): return HTMLResponse("Administrator security is not configured on the server.", status_code=503)
+    if not hmac.compare_digest(password, expected):
+        return HTMLResponse('<meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:500px;margin:70px auto"><h2 style="color:#d4af37">ACCESS DENIED</h2><p>Incorrect administrator password.</p><a style="color:#d4af37" href="/admin-login">Try Again</a></div></body>', status_code=401, headers={"Cache-Control":"no-store"})
+    response = RedirectResponse(url="/phone-attendance", status_code=303)
+    response.set_cookie(ADMIN_COOKIE_NAME, _make_admin_token(), max_age=ADMIN_SESSION_SECONDS, httponly=True, secure=True, samesite="strict", path="/")
+    return response
+
+@app.get("/admin-logout")
+def admin_logout():
+    response = RedirectResponse(url="/admin-login", status_code=303)
+    response.delete_cookie(ADMIN_COOKIE_NAME, path="/")
+    return response
 
 
 # =========================================================
@@ -387,7 +448,9 @@ def debug_checkin_session_table():
 # =========================================================
 
 @app.get("/attendance-schedule", response_class=HTMLResponse)
-def attendance_schedule_manager():
+def attendance_schedule_manager(request: Request):
+    guard = _require_admin(request)
+    if guard: return guard
     """
     Instructor management page for the active challenge
     attendance schedule.
@@ -658,10 +721,13 @@ def attendance_schedule_manager():
 
 @app.post("/attendance-schedule/save", response_class=HTMLResponse)
 def save_attendance_schedule(
+    request: Request,
     class_days: Optional[List[str]] = Form(None),
     special_class_dates: str = Form(""),
     no_class_dates: str = Form("")
 ):
+    guard = _require_admin(request)
+    if guard: return guard
     """
     Validate and save attendance schedule settings for the
     currently active challenge.
@@ -3293,7 +3359,9 @@ def merge_duplicate_clients(execute: bool = False):
 # =========================================================
 
 @app.get("/phone-attendance", response_class=HTMLResponse)
-def phone_attendance(date: Optional[str] = None):
+def phone_attendance(request: Request, date: Optional[str] = None):
+    guard = _require_admin(request)
+    if guard: return guard
     """
     Mobile-friendly instructor attendance page.
     Uses the existing TSHRT clients and attendance system.
@@ -3682,9 +3750,12 @@ upgrade_db()
 
 @app.post("/phone-attendance/checkin-session", response_class=HTMLResponse)
 def set_phone_checkin_session(
+    request: Request,
     attended_date: str = Form(...),
     action: str = Form(...)
 ):
+    guard = _require_admin(request)
+    if guard: return guard
     """Open or close the student QR check-in gate for one valid class date."""
     schedule = get_active_class_schedule(attended_date)
     if not schedule.get("is_class_day", False):
@@ -3763,7 +3834,9 @@ def _esc(value) -> str:
 
 
 @app.get("/phone-attendance/pin-manager", response_class=HTMLResponse)
-def client_pin_manager():
+def client_pin_manager(request: Request):
+    guard = _require_admin(request)
+    if guard: return guard
     conn=get_conn(); cur=conn.cursor()
     clients=cur.execute("""SELECT client_id,display_name,first_name,last_name,checkin_pin_hash,checkin_pin_setup_allowed FROM clients WHERE LOWER(TRIM(COALESCE(group_name,'')))='abc class' ORDER BY last_name,first_name,display_name""").fetchall(); conn.close()
     rows=[]
@@ -3778,7 +3851,9 @@ def client_pin_manager():
 
 
 @app.post("/phone-attendance/pin-manager", response_class=HTMLResponse)
-def client_pin_manager_action(client_id: str=Form(...), action: str=Form(...)):
+def client_pin_manager_action(request: Request, client_id: str=Form(...), action: str=Form(...)):
+    guard = _require_admin(request)
+    if guard: return guard
     conn=get_conn(); cur=conn.cursor()
     exists=cur.execute("SELECT 1 FROM clients WHERE client_id=? AND LOWER(TRIM(COALESCE(group_name,'')))='abc class'",(client_id,)).fetchone()
     if not exists:
@@ -3873,9 +3948,12 @@ def student_checkin_submit(client_id: str=Form(...), pin: str=Form(...)):
 
 @app.post("/phone-attendance/save", response_class=HTMLResponse)
 def save_phone_attendance(
+    request: Request,
     attended_date: str = Form(...),
     client_ids: Optional[List[str]] = Form(None)
 ):
+    guard = _require_admin(request)
+    if guard: return guard
     """
     Saves instructor-selected attendance using the existing
     TSHRT attendance table.

@@ -3454,6 +3454,21 @@ def phone_attendance(date: Optional[str] = None):
 
     present_ids = {row["client_id"] for row in present_rows}
 
+    # ---------------------------------------------------------
+    # 13C — INSTRUCTOR-CONTROLLED STUDENT QR SESSION
+    # ---------------------------------------------------------
+    session_row = cur.execute("""
+        SELECT is_open, opened_at, closed_at
+        FROM attendance_checkin_sessions
+        WHERE session_date = ?
+    """, (today,)).fetchone()
+
+    session_is_open = bool(session_row and session_row["is_open"] == 1)
+    session_status = "OPEN" if session_is_open else "CLOSED"
+    session_action = "close" if session_is_open else "open"
+    session_button = "CLOSE STUDENT CHECK-IN" if session_is_open else "OPEN STUDENT CHECK-IN"
+    session_color = "#2e7d32" if session_is_open else "#8b1e1e"
+
     conn.close()
 
     student_buttons = ""
@@ -3605,6 +3620,21 @@ def phone_attendance(date: Optional[str] = None):
         Attendance Date: <strong>{today}</strong>
     </div>
 
+    <div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:10px;padding:16px;margin-bottom:18px;text-align:center;">
+        <div style="font-size:17px;color:#ddd;margin-bottom:8px;">Student QR Check-In</div>
+        <div style="font-size:26px;font-weight:bold;color:{session_color};margin-bottom:12px;">{session_status}</div>
+        <form method="post" action="/phone-attendance/checkin-session">
+            <input type="hidden" name="attended_date" value="{today}">
+            <input type="hidden" name="action" value="{session_action}">
+            <button type="submit" style="width:100%;padding:15px;border:0;border-radius:8px;background:{session_color};color:white;font-size:18px;font-weight:bold;cursor:pointer;">
+                {session_button}
+            </button>
+        </form>
+        <div style="font-size:13px;color:#aaa;margin-top:10px;">
+            Student QR attendance can only be accepted while this session is OPEN.
+        </div>
+    </div>
+
     <div class="count">
         Select everyone present.
     </div>
@@ -3631,6 +3661,69 @@ def phone_attendance(date: Optional[str] = None):
 
 init_db()
 upgrade_db()
+# =========================================================
+# 13C — INSTRUCTOR OPEN / CLOSE STUDENT QR CHECK-IN
+# =========================================================
+
+@app.post("/phone-attendance/checkin-session", response_class=HTMLResponse)
+def set_phone_checkin_session(
+    attended_date: str = Form(...),
+    action: str = Form(...)
+):
+    """Open or close the student QR check-in gate for one valid class date."""
+    schedule = get_active_class_schedule(attended_date)
+    if not schedule.get("is_class_day", False):
+        return HTMLResponse(
+            content=f"Student check-in cannot be changed for {attended_date}: not a valid class date.",
+            status_code=400
+        )
+
+    action = (action or "").strip().lower()
+    if action not in {"open", "close"}:
+        return HTMLResponse(content="Invalid check-in session action.", status_code=400)
+
+    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_conn()
+    cur = conn.cursor()
+
+    if action == "open":
+        cur.execute("""
+            INSERT INTO attendance_checkin_sessions
+                (session_date, is_open, opened_at, closed_at)
+            VALUES (?, 1, ?, NULL)
+            ON CONFLICT(session_date) DO UPDATE SET
+                is_open = 1,
+                opened_at = excluded.opened_at,
+                closed_at = NULL
+        """, (attended_date, now_text))
+    else:
+        cur.execute("""
+            INSERT INTO attendance_checkin_sessions
+                (session_date, is_open, opened_at, closed_at)
+            VALUES (?, 0, NULL, ?)
+            ON CONFLICT(session_date) DO UPDATE SET
+                is_open = 0,
+                closed_at = excluded.closed_at
+        """, (attended_date, now_text))
+
+    conn.commit()
+    conn.close()
+
+    return HTMLResponse(
+        content=f'''<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="refresh" content="1;url=/phone-attendance?date={attended_date}">
+<title>TSHRT Check-In Session</title></head>
+<body style="margin:0;background:#111;color:white;font-family:Arial,sans-serif;text-align:center;">
+<div style="max-width:600px;margin:70px auto;padding:25px;">
+<h1 style="color:#d4af37;">Student Check-In {action.upper()}</h1>
+<p style="font-size:20px;">{attended_date}</p>
+<p>Returning to Phone Attendance...</p>
+<a href="/phone-attendance?date={attended_date}" style="color:#d4af37;">Return Now</a>
+</div></body></html>'''
+    )
+
+
 # =========================================================
 # PHONE ATTENDANCE — SAVE
 # =========================================================

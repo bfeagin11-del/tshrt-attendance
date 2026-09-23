@@ -314,6 +314,60 @@ def debug_class_day(date: Optional[str] = None):
         "requested_date": date,
         "schedule_decision": result
     }
+
+
+# =========================================================
+# STUDENT CHECK-IN SESSION TABLE DIAGNOSTIC
+# =========================================================
+
+@app.get("/debug/checkin-session-table")
+def debug_checkin_session_table():
+    """
+    Read-only diagnostic for the student QR check-in session table.
+    Confirms the table exists in the live database and reports its
+    schema and row count. Does not create, modify, or delete data.
+    """
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        table = cur.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'attendance_checkin_sessions'
+            LIMIT 1
+        """).fetchone()
+
+        if not table:
+            return {
+                "ok": False,
+                "database": DB_PATH,
+                "table": "attendance_checkin_sessions",
+                "exists": False,
+                "message": "Student check-in session table was not found."
+            }
+
+        columns = cur.execute(
+            "PRAGMA table_info(attendance_checkin_sessions)"
+        ).fetchall()
+
+        row_count = cur.execute(
+            "SELECT COUNT(*) AS count FROM attendance_checkin_sessions"
+        ).fetchone()["count"]
+
+        return {
+            "ok": True,
+            "database": DB_PATH,
+            "table": "attendance_checkin_sessions",
+            "exists": True,
+            "row_count": row_count,
+            "columns": [dict(row) for row in columns]
+        }
+
+    finally:
+        conn.close()
 # =========================================================
 # ATTENDANCE SCHEDULE MANAGER
 # =========================================================

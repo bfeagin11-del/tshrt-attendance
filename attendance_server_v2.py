@@ -3898,7 +3898,7 @@ def student_checkin_select(client_id: str=Form(...)):
     if not c: conn.close(); return HTMLResponse("Invalid client selection.",status_code=400)
     name=_client_name(c); has_pin=bool(c['checkin_pin_hash'] and c['checkin_pin_salt']); allowed=bool(c['checkin_pin_setup_allowed']); conn.close()
     if has_pin:
-        body=f'''<h2>{_esc(name)}</h2><p>Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin"><input type="hidden" name="client_id" value="{_esc(client_id)}"><input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" placeholder="ENTER PRIVATE PIN" minlength="4" maxlength="6" required autofocus><button>CHECK IN</button></form>'''
+        body=f'''<h2>{_esc(name)}</h2><p>Attendance Date: <b>{session_date}</b></p><form method="post" action="/student-checkin"><input type="hidden" name="client_id" value="{_esc(client_id)}"><input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" placeholder="ENTER PRIVATE PIN" minlength="4" maxlength="6" required autofocus autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"><button>CHECK IN</button></form>'''
     elif allowed:
         body=f'''<h2>{_esc(name)}</h2><p>Create your private 4–6 digit PIN. <b>This does not record attendance.</b></p><form method="post" action="/student-checkin/setup"><input type="hidden" name="client_id" value="{_esc(client_id)}"><input type="password" inputmode="numeric" pattern="[0-9]*" name="new_pin" placeholder="CREATE PIN" minlength="4" maxlength="6" required><input type="password" inputmode="numeric" pattern="[0-9]*" name="confirm_pin" placeholder="CONFIRM PIN" minlength="4" maxlength="6" required><button>CREATE PRIVATE PIN</button></form>'''
     else:

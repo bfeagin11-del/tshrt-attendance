@@ -2826,56 +2826,23 @@ def debug_client(client_id: str):
     }
 @app.get("/admin/rebuild_lifetime")
 def rebuild_lifetime():
+    """
+    DISABLED LEGACY ENDPOINT — Target 18 scoring-integrity protection.
 
-    conn = get_conn()
-    cur = conn.cursor()
-
-    rows = cur.execute("""
-        SELECT
-            client_id,
-            COALESCE(baseline_score,0) AS baseline_score,
-            COALESCE(snapshot_score,0) AS snapshot_score
-        FROM clients
-    """).fetchall()
-
-    updated = []
-
-    for r in rows:
-
-        client_id = r["client_id"]
-
-        baseline = r["baseline_score"] or 0
-        snapshot = r["snapshot_score"] or 0
-
-        attendance = cur.execute("""
-            SELECT COUNT(*)
-            FROM attendance
-            WHERE client_id = ?
-              AND COALESCE(present,1) = 1
-        """, (client_id,)).fetchone()[0]
-
-        current = baseline + snapshot + attendance
-
-        previous_total = max(0, current)
-
-        cur.execute("""
-            UPDATE clients
-            SET previous_total = ?
-            WHERE client_id = ?
-        """, (previous_total, client_id))
-
-        updated.append({
-            "client_id": client_id,
-            "previous_total": previous_total
-        })
-
-    conn.commit()
-    conn.close()
-
+    This route previously rebuilt previous_total using all historical attendance,
+    which can corrupt authoritative lifetime scoring. Lifetime rollover is handled
+    only by the production challenge-close workflow.
+    """
     return {
-        "ok": True,
-        "updated": updated
+        "ok": False,
+        "disabled": True,
+        "message": (
+            "Legacy rebuild_lifetime is disabled. "
+            "Lifetime totals are maintained by the production challenge-close workflow."
+        ),
     }
+
+
 @app.post("/challenge/start")
 def start_challenge(start_date: str, weeks: int = 8):
     conn = get_conn()

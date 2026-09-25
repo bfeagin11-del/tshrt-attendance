@@ -2109,14 +2109,11 @@ def sync_clients(payload: dict):
             for old_row in old_rows:
                 old_id = old_row["client_id"]
 
-                baseline = max(
-                    baseline,
-                    float(old_row["baseline_score"] or 0)
-                )
-                snapshot = max(
-                    snapshot,
-                    float(old_row["snapshot_score"] or 0)
-                )
+                # Target 18 scoring integrity:
+                # Active-challenge Baseline and Snapshot are authoritative from
+                # the incoming, challenge-filtered client tests. Do not allow
+                # stale duplicate cloud rows to override those current values.
+                # Only historical Lifetime (previous_total) is preserved here.
                 incoming_previous = max(
                     incoming_previous,
                     float(old_row["previous_total"] or 0)

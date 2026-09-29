@@ -225,6 +225,19 @@ def upgrade_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # 13F — QR/PIN check-ins wait here until instructor approval.
+    # Pending records do NOT count toward attendance or the leaderboard.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance_checkin_pending (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id TEXT NOT NULL,
+            attended_date TEXT NOT NULL,
+            checked_in_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(client_id, attended_date)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -3502,6 +3515,17 @@ def phone_attendance(request: Request, date: Optional[str] = None):
 
     present_ids = {row["client_id"] for row in present_rows}
 
+    pending_rows = cur.execute("""
+        SELECT p.client_id
+        FROM attendance_checkin_pending p
+        JOIN clients c ON c.client_id = p.client_id
+        WHERE p.attended_date = ?
+          AND LOWER(TRIM(COALESCE(c.group_name, ''))) = 'abc class'
+        ORDER BY p.checked_in_at, p.id
+    """, (today,)).fetchall()
+    pending_ids = {row["client_id"] for row in pending_rows}
+    pending_count = len(pending_ids)
+
     # ---------------------------------------------------------
     # 13C — INSTRUCTOR-CONTROLLED STUDENT QR SESSION
     # ---------------------------------------------------------
@@ -3532,6 +3556,7 @@ def phone_attendance(request: Request, date: Optional[str] = None):
             display_name = f"{first} {last}".strip()
 
         checked = "checked" if client_id in present_ids else ""
+        pending_badge = " <strong style=\"color:#d4af37;\">— QR CHECK-IN PENDING APPROVAL</strong>" if client_id in pending_ids else ""
 
         student_buttons += f"""
         <label class="student">
@@ -3539,7 +3564,7 @@ def phone_attendance(request: Request, date: Optional[str] = None):
                    name="client_ids"
                    value="{client_id}"
                    {checked}>
-            <span>{display_name}</span>
+            <span>{display_name}{pending_badge}</span>
         </label>
         """
 
@@ -3679,8 +3704,24 @@ def phone_attendance(request: Request, date: Optional[str] = None):
             </button>
         </form>
         <div style="font-size:13px;color:#aaa;margin-top:10px;">
-            Client self check-in can only be accepted while this session is OPEN.<br><br>
+            Client self check-in can only be accepted while this session is OPEN.<br>
+            Closing the session stops new QR/PIN check-ins. It does not approve attendance.<br><br>
             <a href="/phone-attendance/pin-manager" style="color:#d4af37;font-weight:bold;">CLIENT PIN MANAGER</a>
+        </div>
+    </div>
+
+    <div style="background:#1c1c1c;border:2px solid #d4af37;border-radius:10px;padding:16px;margin-bottom:18px;text-align:center;">
+        <div style="font-size:17px;color:#ddd;margin-bottom:8px;">QR/PIN Clearance Queue</div>
+        <div style="font-size:26px;font-weight:bold;color:#d4af37;margin-bottom:12px;">{pending_count} PENDING</div>
+        <form method="post" action="/phone-attendance/approve-checkins">
+            <input type="hidden" name="attended_date" value="{today}">
+            <button type="submit" {'disabled' if pending_count == 0 else ''}
+                    style="width:100%;padding:15px;border:0;border-radius:8px;background:#d4af37;color:#000;font-size:18px;font-weight:bold;cursor:pointer;">
+                APPROVE / FINALIZE QR CHECK-INS
+            </button>
+        </form>
+        <div style="font-size:13px;color:#aaa;margin-top:10px;">
+            Review the gold PENDING names below before approval. Approval makes those QR/PIN check-ins official attendance and finalizes the date.
         </div>
     </div>
 
@@ -3902,10 +3943,67 @@ def student_checkin_submit(client_id: str=Form(...), pin: str=Form(...)):
     finalized=cur.execute("SELECT 1 FROM attendance WHERE attended_date=? AND COALESCE(finalized,0)=1 LIMIT 1",(session_date,)).fetchone()
     if finalized: conn.close(); return HTMLResponse("Attendance for this date has been finalized.",status_code=409)
     already=cur.execute("SELECT 1 FROM attendance WHERE client_id=? AND attended_date=? AND present=1",(client_id,session_date)).fetchone()
-    if already: conn.close(); return HTMLResponse("ALREADY CHECKED IN — no duplicate attendance was created.",status_code=200)
-    cur.execute("INSERT INTO attendance(client_id,attended_date,present,finalized) VALUES(?,?,1,0) ON CONFLICT(client_id,attended_date) DO UPDATE SET present=1",(client_id,session_date)); conn.commit(); conn.close()
+    if already: conn.close(); return HTMLResponse("ALREADY APPROVED — no duplicate attendance was created.",status_code=200)
+    pending=cur.execute("SELECT 1 FROM attendance_checkin_pending WHERE client_id=? AND attended_date=?",(client_id,session_date)).fetchone()
+    if pending: conn.close(); return HTMLResponse("ALREADY CHECKED IN — awaiting instructor approval.",status_code=200)
+    cur.execute("INSERT INTO attendance_checkin_pending(client_id,attended_date) VALUES(?,?) ON CONFLICT(client_id,attended_date) DO NOTHING",(client_id,session_date)); conn.commit(); conn.close()
     name=_client_name(c)
-    return HTMLResponse(f'''<meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:50px auto;border:2px solid #d4af37;border-radius:12px;padding:30px"><h1 style="color:#d4af37">CHECK-IN COMPLETE</h1><h2>{_esc(name)}</h2><p>Present for <b>{session_date}</b></p></div></body>''',headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+    return HTMLResponse(f'''<meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:50px auto;border:2px solid #d4af37;border-radius:12px;padding:30px"><h1 style="color:#d4af37">CHECK-IN RECEIVED</h1><h2>{_esc(name)}</h2><p>Attendance Date: <b>{session_date}</b></p><p style="color:#d4af37;font-weight:bold;">AWAITING INSTRUCTOR APPROVAL</p></div></body>''',headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
+
+# =========================================================
+# 13F — INSTRUCTOR APPROVAL / FINALIZATION OF QR CHECK-INS
+# =========================================================
+
+@app.post("/phone-attendance/approve-checkins", response_class=HTMLResponse)
+def approve_phone_checkins(request: Request, attended_date: str = Form(...)):
+    guard = _require_admin(request)
+    if guard: return guard
+
+    schedule = get_active_class_schedule(attended_date)
+    if not schedule.get("is_class_day", False):
+        return HTMLResponse("Attendance approval is unavailable for this date.", status_code=400)
+
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        pending = cur.execute("""
+            SELECT p.client_id
+            FROM attendance_checkin_pending p
+            JOIN clients c ON c.client_id = p.client_id
+            WHERE p.attended_date = ?
+              AND LOWER(TRIM(COALESCE(c.group_name, ''))) = 'abc class'
+            ORDER BY p.checked_in_at, p.id
+        """, (attended_date,)).fetchall()
+
+        approved_count = 0
+        for row in pending:
+            cur.execute("""
+                INSERT INTO attendance (client_id, attended_date, present, finalized)
+                VALUES (?, ?, 1, 1)
+                ON CONFLICT(client_id, attended_date) DO UPDATE SET
+                    present = 1,
+                    finalized = 1
+            """, (row["client_id"], attended_date))
+            approved_count += 1
+
+        cur.execute("DELETE FROM attendance_checkin_pending WHERE attended_date = ?", (attended_date,))
+        cur.execute("""
+            INSERT INTO attendance_checkin_sessions
+                (session_date, is_open, opened_at, closed_at)
+            VALUES (?, 0, NULL, ?)
+            ON CONFLICT(session_date) DO UPDATE SET
+                is_open = 0,
+                closed_at = excluded.closed_at
+        """, (attended_date, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+    conn.close()
+
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="1;url=/phone-attendance?date={attended_date}"><title>Attendance Approved</title></head><body style="margin:0;background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:70px auto;padding:25px;border:2px solid #d4af37;border-radius:12px"><h1 style="color:#d4af37">ATTENDANCE APPROVED</h1><p style="font-size:20px"><b>{approved_count}</b> QR/PIN check-ins finalized for {attended_date}.</p><p>The check-in session is CLOSED.</p><a href="/phone-attendance?date={attended_date}" style="color:#d4af37">Return Now</a></div></body></html>''')
 
 
 # =========================================================

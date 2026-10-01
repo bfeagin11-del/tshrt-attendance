@@ -3717,11 +3717,11 @@ def phone_attendance(request: Request, date: Optional[str] = None):
             <input type="hidden" name="attended_date" value="{today}">
             <button type="submit" {'disabled' if pending_count == 0 else ''}
                     style="width:100%;padding:15px;border:0;border-radius:8px;background:#d4af37;color:#000;font-size:18px;font-weight:bold;cursor:pointer;">
-                APPROVE / FINALIZE QR CHECK-INS
+                APPROVE QR CHECK-INS
             </button>
         </form>
         <div style="font-size:13px;color:#aaa;margin-top:10px;">
-            Review the gold PENDING names below before approval. Approval makes those QR/PIN check-ins official attendance and finalizes the date.
+            Review the gold PENDING names below before approval. Approval makes those QR/PIN check-ins official saved attendance. The date remains editable until you finalize the challenge.
         </div>
     </div>
 
@@ -3980,10 +3980,9 @@ def approve_phone_checkins(request: Request, attended_date: str = Form(...)):
         for row in pending:
             cur.execute("""
                 INSERT INTO attendance (client_id, attended_date, present, finalized)
-                VALUES (?, ?, 1, 1)
+                VALUES (?, ?, 1, 0)
                 ON CONFLICT(client_id, attended_date) DO UPDATE SET
-                    present = 1,
-                    finalized = 1
+                    present = 1
             """, (row["client_id"], attended_date))
             approved_count += 1
 
@@ -4003,7 +4002,7 @@ def approve_phone_checkins(request: Request, attended_date: str = Form(...)):
         raise
     conn.close()
 
-    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="1;url=/phone-attendance?date={attended_date}"><title>Attendance Approved</title></head><body style="margin:0;background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:70px auto;padding:25px;border:2px solid #d4af37;border-radius:12px"><h1 style="color:#d4af37">ATTENDANCE APPROVED</h1><p style="font-size:20px"><b>{approved_count}</b> QR/PIN check-ins finalized for {attended_date}.</p><p>The check-in session is CLOSED.</p><a href="/phone-attendance?date={attended_date}" style="color:#d4af37">Return Now</a></div></body></html>''')
+    return HTMLResponse(f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="1;url=/phone-attendance?date={attended_date}"><title>Attendance Approved</title></head><body style="margin:0;background:#111;color:white;font-family:Arial;text-align:center"><div style="max-width:600px;margin:70px auto;padding:25px;border:2px solid #d4af37;border-radius:12px"><h1 style="color:#d4af37">ATTENDANCE APPROVED</h1><p style="font-size:20px"><b>{approved_count}</b> QR/PIN check-ins approved and saved for {attended_date}.</p><p>The check-in session is CLOSED.</p><a href="/phone-attendance?date={attended_date}" style="color:#d4af37">Return Now</a></div></body></html>''')
 
 
 # =========================================================

@@ -4101,6 +4101,86 @@ def reject_phone_checkin(
     return RedirectResponse(url=f"/phone-attendance?date={attended_date}", status_code=303)
 
 
+
+# =========================================================
+# 13H — CORRECTION / REJECT CONTROL TEST MODE
+# ADMIN ONLY — SYNTHETIC DATA — NO DATABASE WRITES
+# =========================================================
+
+@app.get("/phone-attendance/reject-test", response_class=HTMLResponse)
+def reject_phone_checkin_test(request: Request, rejected: int = 0):
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    if rejected:
+        test_body = """
+        <div style="border:2px solid #3fa55b;background:#152619;border-radius:12px;padding:20px;margin:18px 0;">
+            <div style="font-size:24px;font-weight:bold;color:#6fd184;">REJECT TEST PASSED</div>
+            <div style="margin-top:10px;color:#ddd;">
+                Synthetic pending check-in removed from the test display.
+            </div>
+        </div>
+        <div style="font-size:18px;margin:18px 0;">
+            <b>Pending:</b> 0 &nbsp; | &nbsp; <b>Approved/Saved:</b> 1 &nbsp; | &nbsp; <b>Not Checked In:</b> 1
+        </div>
+        <a href="/phone-attendance/reject-test"
+           style="display:block;padding:14px;background:#d4af37;color:#000;text-decoration:none;border-radius:8px;font-weight:bold;">
+            RESET TEST
+        </a>
+        """
+    else:
+        test_body = """
+        <div style="font-size:18px;margin:18px 0;">
+            <b>Pending:</b> 1 &nbsp; | &nbsp; <b>Approved/Saved:</b> 1 &nbsp; | &nbsp; <b>Not Checked In:</b> 1
+        </div>
+
+        <div style="border:1px solid #66581d;background:#262626;border-radius:10px;padding:16px;margin:18px 0;text-align:left;">
+            <div style="font-size:20px;font-weight:bold;color:#d4af37;margin-bottom:10px;">
+                BJ — PENDING
+            </div>
+            <form method="get" action="/phone-attendance/reject-test"
+                  onsubmit="return confirm('Reject this synthetic pending check-in?');">
+                <input type="hidden" name="rejected" value="1">
+                <button type="submit"
+                        style="width:100%;padding:13px;border:1px solid #b94a48;border-radius:8px;background:#5a1f1f;color:white;font-size:17px;font-weight:bold;cursor:pointer;">
+                    REJECT PENDING CHECK-IN
+                </button>
+            </form>
+        </div>
+
+        <div style="border:1px solid #3f6f4a;background:#18261c;border-radius:10px;padding:14px;margin:12px 0;text-align:left;">
+            Test Student — APPROVED / SAVED
+        </div>
+        <div style="border:1px solid #555;background:#202020;border-radius:10px;padding:14px;margin:12px 0;text-align:left;">
+            Test Student — NOT CHECKED IN
+        </div>
+        """
+
+    return HTMLResponse(f"""<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TSHRT 13H Reject Test</title>
+</head>
+<body style="margin:0;background:#111;color:white;font-family:Arial;">
+<div style="max-width:650px;margin:35px auto;padding:20px;">
+    <div style="border:2px solid #d4af37;border-radius:12px;padding:22px;text-align:center;">
+        <h1 style="color:#d4af37;margin-top:0;">TSHRT — 13H CORRECTION / REJECT TEST</h1>
+        <div style="font-size:17px;font-weight:bold;color:#d4af37;">
+            ADMIN ONLY • SYNTHETIC DATA • NO DATABASE WRITES
+        </div>
+        <p style="color:#ccc;">
+            This screen tests the instructor rejection workflow without creating,
+            changing, approving, finalizing, or deleting production attendance.
+        </p>
+        {test_body}
+    </div>
+</div>
+</body>
+</html>""", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+
 # =========================================================
 # 13F — INSTRUCTOR APPROVAL / FINALIZATION OF QR CHECK-INS
 # =========================================================

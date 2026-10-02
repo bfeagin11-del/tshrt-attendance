@@ -3952,6 +3952,57 @@ def student_checkin_submit(client_id: str=Form(...), pin: str=Form(...)):
 
 
 # =========================================================
+# 13G — CLEARANCE BOARD TEST MODE (ADMIN / READ-ONLY)
+# =========================================================
+
+@app.get("/phone-attendance/clearance-test", response_class=HTMLResponse)
+def phone_attendance_clearance_test(request: Request):
+    """Administrator-only, display-only test for the 13G Clearance Board."""
+    guard = _require_admin(request)
+    if guard: return guard
+
+    test_rows = [
+        ("BJ TEST — PENDING", "PENDING", "#d4af37", "Awaiting instructor approval"),
+        ("TEST CLIENT — APPROVED", "APPROVED / SAVED", "#4caf50", "Saved attendance — still editable"),
+        ("TEST CLIENT — NOT CHECKED IN", "NOT CHECKED IN", "#aaaaaa", "No QR/PIN check-in received"),
+    ]
+
+    cards = ""
+    for name, status, color, detail in test_rows:
+        cards += f"""<div style="background:#222;border:2px solid {color};border-radius:10px;padding:18px;margin:12px 0;text-align:left;">
+            <div style="font-size:20px;font-weight:bold;">{name}</div>
+            <div style="font-size:18px;color:{color};font-weight:bold;margin-top:7px;">{status}</div>
+            <div style="font-size:14px;color:#bbb;margin-top:5px;">{detail}</div>
+        </div>"""
+
+    return HTMLResponse(f"""<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TSHRT 13G Clearance Board Test</title></head>
+<body style="margin:0;background:#111;color:white;font-family:Arial,sans-serif;">
+<div style="background:#000;border-bottom:4px solid #d4af37;padding:22px;text-align:center;">
+    <h1 style="color:#d4af37;margin:0;">TSHRT</h1>
+    <p style="margin:7px 0 0;">13G — Clearance Board Test Mode</p>
+</div>
+<div style="max-width:650px;margin:auto;padding:20px;">
+    <div style="background:#182118;border:2px solid #4caf50;border-radius:10px;padding:15px;margin-bottom:18px;text-align:center;">
+        <strong style="color:#4caf50;">READ-ONLY TEST MODE</strong><br>
+        <span style="font-size:14px;color:#ccc;">No attendance or pending records can be changed from this page.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px;text-align:center;">
+        <div style="background:#222;border-radius:8px;padding:12px;"><b style="color:#d4af37;font-size:25px;">1</b><br><span style="font-size:12px;">PENDING</span></div>
+        <div style="background:#222;border-radius:8px;padding:12px;"><b style="color:#4caf50;font-size:25px;">1</b><br><span style="font-size:12px;">APPROVED</span></div>
+        <div style="background:#222;border-radius:8px;padding:12px;"><b style="color:#aaa;font-size:25px;">1</b><br><span style="font-size:12px;">NOT CHECKED IN</span></div>
+    </div>
+    {cards}
+    <div style="background:#1c1c1c;border:1px solid #555;border-radius:10px;padding:16px;margin-top:20px;line-height:1.5;">
+        <b style="color:#d4af37;">13G REVIEW STANDARD</b><br>
+        Before approval, the instructor must be able to distinguish who is pending, who is already saved, and who has not checked in.
+    </div>
+    <a href="/phone-attendance" style="display:block;margin-top:20px;padding:16px;background:#d4af37;color:#000;text-align:center;text-decoration:none;border-radius:8px;font-weight:bold;">RETURN TO ATTENDANCE</a>
+</div></body></html>""", headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
+
+# =========================================================
 # 13F — INSTRUCTOR APPROVAL / FINALIZATION OF QR CHECK-INS
 # =========================================================
 

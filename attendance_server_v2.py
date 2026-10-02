@@ -3516,7 +3516,12 @@ def phone_attendance(request: Request, date: Optional[str] = None):
     present_ids = {row["client_id"] for row in present_rows}
 
     pending_rows = cur.execute("""
-        SELECT p.client_id
+        SELECT
+            p.client_id,
+            p.checked_in_at,
+            c.display_name,
+            c.first_name,
+            c.last_name
         FROM attendance_checkin_pending p
         JOIN clients c ON c.client_id = p.client_id
         WHERE p.attended_date = ?
@@ -3542,6 +3547,32 @@ def phone_attendance(request: Request, date: Optional[str] = None):
     session_color = "#2e7d32" if session_is_open else "#8b1e1e"
 
     conn.close()
+
+    pending_review_cards = ""
+
+    for row in pending_rows:
+        pending_name = (row["display_name"] or "").strip()
+        if not pending_name:
+            pending_first = (row["first_name"] or "").strip()
+            pending_last = (row["last_name"] or "").strip()
+            pending_name = f"{pending_first} {pending_last}".strip()
+
+        pending_review_cards += f"""
+        <div style="background:#262626;border:1px solid #66581d;border-radius:8px;padding:12px;margin-top:10px;text-align:left;">
+            <div style="font-size:18px;font-weight:bold;color:#d4af37;margin-bottom:9px;">
+                {pending_name} — PENDING
+            </div>
+            <form method="post" action="/phone-attendance/reject-checkin"
+                  onsubmit="return confirm('Reject this pending QR/PIN check-in?');">
+                <input type="hidden" name="attended_date" value="{today}">
+                <input type="hidden" name="client_id" value="{row['client_id']}">
+                <button type="submit"
+                        style="width:100%;padding:11px;border:1px solid #b94a48;border-radius:7px;background:#5a1f1f;color:white;font-size:16px;font-weight:bold;cursor:pointer;">
+                    REJECT PENDING CHECK-IN
+                </button>
+            </form>
+        </div>
+        """
 
     student_buttons = ""
 
@@ -3721,8 +3752,9 @@ def phone_attendance(request: Request, date: Optional[str] = None):
             </button>
         </form>
         <div style="font-size:13px;color:#aaa;margin-top:10px;">
-            Review the gold PENDING names below before approval. Approval makes those QR/PIN check-ins official saved attendance. The date remains editable until you finalize the challenge.
+            Review each pending QR/PIN check-in before approval. Use REJECT only for an incorrect check-in. Approval makes the remaining pending check-ins official saved attendance. The date remains editable until you finalize the challenge.
         </div>
+        {pending_review_cards}
     </div>
 
     <div class="count">
@@ -4000,6 +4032,73 @@ def phone_attendance_clearance_test(request: Request):
     </div>
     <a href="/phone-attendance" style="display:block;margin-top:20px;padding:16px;background:#d4af37;color:#000;text-align:center;text-decoration:none;border-radius:8px;font-weight:bold;">RETURN TO ATTENDANCE</a>
 </div></body></html>""", headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0"})
+
+
+# =========================================================
+# 13H — INSTRUCTOR REJECT / CORRECTION OF PENDING QR CHECK-IN
+# =========================================================
+
+@app.post("/phone-attendance/reject-checkin", response_class=HTMLResponse)
+def reject_phone_checkin(
+    request: Request,
+    attended_date: str = Form(...),
+    client_id: str = Form(...)
+):
+    guard = _require_admin(request)
+    if guard:
+        return guard
+
+    attended_date = (attended_date or "").strip()
+    client_id = (client_id or "").strip()
+
+    schedule = get_active_class_schedule(attended_date)
+    if not schedule.get("is_class_day", False):
+        return HTMLResponse("Attendance correction is unavailable for this date.", status_code=400)
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    try:
+        finalized = cur.execute("""
+            SELECT 1 FROM attendance
+            WHERE attended_date = ? AND COALESCE(finalized, 0) = 1
+            LIMIT 1
+        """, (attended_date,)).fetchone()
+
+        if finalized:
+            conn.close()
+            return HTMLResponse(
+                "Attendance for this date has been finalized. Pending check-ins were not changed.",
+                status_code=409
+            )
+
+        row = cur.execute("""
+            SELECT p.client_id
+            FROM attendance_checkin_pending p
+            JOIN clients c ON c.client_id = p.client_id
+            WHERE p.client_id = ?
+              AND p.attended_date = ?
+              AND LOWER(TRIM(COALESCE(c.group_name, ''))) = 'abc class'
+            LIMIT 1
+        """, (client_id, attended_date)).fetchone()
+
+        if not row:
+            conn.close()
+            return RedirectResponse(url=f"/phone-attendance?date={attended_date}", status_code=303)
+
+        cur.execute("""
+            DELETE FROM attendance_checkin_pending
+            WHERE client_id = ? AND attended_date = ?
+        """, (client_id, attended_date))
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+
+    conn.close()
+    return RedirectResponse(url=f"/phone-attendance?date={attended_date}", status_code=303)
 
 
 # =========================================================
